@@ -1,14 +1,21 @@
-import type { League } from "@/data/types";
-import { leagueFlags } from "@/data/mockData";
+const leagueFlags: Record<string, string> = {
+  "Premier League": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+  "La Liga": "🇪🇸",
+  "Serie A": "🇮🇹",
+  "Ligue 1": "🇫🇷",
+  "Saudi Pro League": "🇸🇦",
+  "MLS": "🇺🇸",
+  "Süper Lig": "🇹🇷",
+};
 
-const allLeagues: League[] = [
+const allLeagues = [
   "Premier League", "La Liga", "Serie A", "Ligue 1",
   "Saudi Pro League", "MLS", "Süper Lig"
 ];
 
 interface LeagueFilterProps {
-  selected: League | "all";
-  onSelect: (league: League | "all") => void;
+  selected: string;
+  onSelect: (league: string) => void;
 }
 
 export function LeagueFilter({ selected, onSelect }: LeagueFilterProps) {
