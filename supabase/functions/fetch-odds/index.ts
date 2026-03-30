@@ -87,7 +87,8 @@ Deno.serve(async (req) => {
       }
 
       if (!response.ok) {
-        console.log(`Skipping ${sportKey}: ${response.status}`);
+        const body = await response.text();
+        console.log(`Skipping ${sportKey}: ${response.status} - ${body}`);
         continue;
       }
 
