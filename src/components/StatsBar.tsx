@@ -1,12 +1,19 @@
 import { motion } from "framer-motion";
-import { matches, predictions } from "@/data/mockData";
+import type { DbMatch, DbPrediction } from "@/hooks/useMatches";
 import { Activity, Target, TrendingUp, Zap } from "lucide-react";
 
-export function StatsBar() {
+interface StatsBarProps {
+  matches: DbMatch[];
+  predictions: DbPrediction[];
+}
+
+export function StatsBar({ matches, predictions }: StatsBarProps) {
   const liveCount = matches.filter(m => m.status === "live").length;
   const highConf = predictions.filter(p => p.confidence === "high").length;
   const totalMatches = matches.length;
-  const avgConfidence = predictions.reduce((s, p) => s + p.finalScore, 0) / predictions.length;
+  const avgConfidence = predictions.length > 0
+    ? predictions.reduce((s, p) => s + p.final_score, 0) / predictions.length
+    : 0;
 
   const stats = [
     { icon: Activity, label: "Live Matches", value: liveCount, color: "text-destructive" },
