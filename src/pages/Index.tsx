@@ -22,7 +22,7 @@ export default function Index() {
           <div className="flex items-center gap-2">
             <Shield className="w-6 h-6 text-primary" />
             <h1 className="font-bold text-lg font-display">
-              <span className="text-gradient-primary">Predict</span>
+              <span className="text-gradient-primary">Burna Predict</span>
               <span className="text-muted-foreground">IQ</span>
             </h1>
           </div>
