@@ -76,7 +76,7 @@ Deno.serve(async (req) => {
       const league = SPORT_KEYS[sportKey];
 
       // Fetch odds from The Odds API
-      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${968b16d9efc0c28b9537c3c726541845}&regions=us,eu&markets=h2h,totals&oddsFormat=decimal&dateFormat=iso`;
+      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${API_KEY}&regions=us,eu&markets=h2h,totals&oddsFormat=decimal&dateFormat=iso`;
 
       let response: Response;
       try {
