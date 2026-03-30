@@ -212,14 +212,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    const remaining = response ? response.headers.get("x-requests-remaining") : "unknown";
-
     return new Response(JSON.stringify({
       success: true,
       matches: totalMatches,
       odds: totalOdds,
       predictions: totalPredictions,
-      apiRequestsRemaining: remaining,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
