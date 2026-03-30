@@ -14,7 +14,148 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      matches: {
+        Row: {
+          away_score: number | null
+          away_team: string
+          created_at: string
+          external_id: string | null
+          home_score: number | null
+          home_team: string
+          id: string
+          kickoff_time: string
+          league: string
+          minute: number | null
+          sport_key: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          away_score?: number | null
+          away_team: string
+          created_at?: string
+          external_id?: string | null
+          home_score?: number | null
+          home_team: string
+          id?: string
+          kickoff_time: string
+          league: string
+          minute?: number | null
+          sport_key: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          away_score?: number | null
+          away_team?: string
+          created_at?: string
+          external_id?: string | null
+          home_score?: number | null
+          home_team?: string
+          id?: string
+          kickoff_time?: string
+          league?: string
+          minute?: number | null
+          sport_key?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      odds: {
+        Row: {
+          bookmaker: string
+          fetched_at: string
+          id: string
+          implied_probability: number
+          market: string
+          match_id: string
+          odds: number
+          outcome: string
+        }
+        Insert: {
+          bookmaker: string
+          fetched_at?: string
+          id?: string
+          implied_probability: number
+          market: string
+          match_id: string
+          odds: number
+          outcome: string
+        }
+        Update: {
+          bookmaker?: string
+          fetched_at?: string
+          id?: string
+          implied_probability?: number
+          market?: string
+          match_id?: string
+          odds?: number
+          outcome?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "odds_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      predictions: {
+        Row: {
+          confidence: string
+          consistency: number
+          created_at: string
+          explanation: string | null
+          final_score: number
+          form_score: number
+          id: string
+          market: string
+          match_id: string
+          model_probability: number
+          odds_implied_probability: number
+          outcome: string
+        }
+        Insert: {
+          confidence: string
+          consistency?: number
+          created_at?: string
+          explanation?: string | null
+          final_score: number
+          form_score?: number
+          id?: string
+          market: string
+          match_id: string
+          model_probability: number
+          odds_implied_probability: number
+          outcome: string
+        }
+        Update: {
+          confidence?: string
+          consistency?: number
+          created_at?: string
+          explanation?: string | null
+          final_score?: number
+          form_score?: number
+          id?: string
+          market?: string
+          match_id?: string
+          model_probability?: number
+          odds_implied_probability?: number
+          outcome?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "predictions_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
