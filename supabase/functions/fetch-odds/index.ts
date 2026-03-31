@@ -5,7 +5,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// The Odds API sport keys mapped to our league names
 const SPORT_KEYS: Record<string, string> = {
   "soccer_epl": "Premier League",
   "soccer_spain_la_liga": "La Liga",
@@ -15,6 +14,45 @@ const SPORT_KEYS: Record<string, string> = {
   "soccer_usa_mls": "MLS",
   "soccer_turkey_super_league": "Süper Lig",
 };
+
+// Expanded markets to fetch from The Odds API
+const API_MARKETS = "h2h,totals,spreads,btts,double_chance,draw_no_bet";
+
+// Map API market keys to display names
+function mapMarketName(apiKey: string, point?: number): string {
+  switch (apiKey) {
+    case "h2h": return "1X2";
+    case "totals": return point ? `Over/Under ${point}` : "Over/Under 2.5";
+    case "spreads": return "Handicap";
+    case "btts": return "BTTS";
+    case "double_chance": return "Double Chance";
+    case "draw_no_bet": return "Draw No Bet";
+    default: return apiKey;
+  }
+}
+
+function mapOutcomeName(apiKey: string, name: string, homeTeam: string, awayTeam: string): string {
+  if (apiKey === "h2h") {
+    if (name === homeTeam) return "Home Win";
+    if (name === awayTeam) return "Away Win";
+    return "Draw";
+  }
+  if (apiKey === "double_chance") {
+    if (name === `${homeTeam} or Draw`) return "Home or Draw";
+    if (name === `${awayTeam} or Draw`) return "Away or Draw";
+    if (name === `${homeTeam} or ${awayTeam}`) return "Home or Away";
+    return name;
+  }
+  if (apiKey === "draw_no_bet") {
+    if (name === homeTeam) return "Home Win";
+    if (name === awayTeam) return "Away Win";
+    return name;
+  }
+  if (apiKey === "btts") {
+    return name === "Yes" ? "Both Teams Score" : "No BTTS";
+  }
+  return name;
+}
 
 interface OddsAPIEvent {
   id: string;
@@ -30,6 +68,7 @@ interface OddsAPIEvent {
       outcomes: {
         name: string;
         price: number;
+        point?: number;
       }[];
     }[];
   }[];
@@ -41,17 +80,47 @@ function getConfidence(score: number): string {
   return "low";
 }
 
-function generateExplanation(market: string, outcome: string, impliedProb: number, homeTeam: string, awayTeam: string): string {
-  const pct = (impliedProb * 100).toFixed(0);
-  if (market === "h2h") {
-    if (outcome === homeTeam) return `${homeTeam} favored at ${pct}% implied probability based on current market odds.`;
-    if (outcome === awayTeam) return `${awayTeam} seen as likely winners with ${pct}% market expectation.`;
-    return `Draw expected at ${pct}% probability based on bookmaker pricing.`;
+async function generateAIExplanation(
+  predictions: { market: string; outcome: string; finalScore: number; impliedProb: number; modelProb: number }[],
+  homeTeam: string,
+  awayTeam: string,
+): Promise<string> {
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (!LOVABLE_API_KEY) return "";
+
+  const summary = predictions
+    .slice(0, 5)
+    .map(p => `${p.market} → ${p.outcome} (model: ${(p.modelProb * 100).toFixed(0)}%, odds: ${(p.impliedProb * 100).toFixed(0)}%, score: ${(p.finalScore * 100).toFixed(0)}%)`)
+    .join("\n");
+
+  try {
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-lite",
+        messages: [
+          {
+            role: "system",
+            content: "You are a football betting analyst. Given prediction data for a match, write a concise 2-3 sentence analysis explaining the key insights. Focus on value bets, market trends, and actionable takeaways. Be direct and data-driven. No greetings or filler.",
+          },
+          {
+            role: "user",
+            content: `Match: ${homeTeam} vs ${awayTeam}\n\nPrediction breakdown:\n${summary}\n\nProvide a brief analytical explanation.`,
+          },
+        ],
+      }),
+    });
+
+    if (!resp.ok) return "";
+    const data = await resp.json();
+    return data.choices?.[0]?.message?.content?.trim() || "";
+  } catch {
+    return "";
   }
-  if (market === "totals") {
-    return `${outcome} goals market priced at ${pct}% implied probability across bookmakers.`;
-  }
-  return `${outcome} in ${market} market at ${pct}% implied probability.`;
 }
 
 Deno.serve(async (req) => {
@@ -67,7 +136,6 @@ Deno.serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Accept optional body to limit sport keys
     let selectedKeys: string[] | undefined;
     try {
       const body = await req.json();
@@ -79,12 +147,11 @@ Deno.serve(async (req) => {
     let totalOdds = 0;
     let totalPredictions = 0;
 
-    // Process all leagues in parallel
     const results = await Promise.allSettled(sportKeys.map(async (sportKey) => {
       const league = SPORT_KEYS[sportKey];
       if (!league) return { matches: 0, odds: 0, predictions: 0 };
 
-      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${API_KEY}&regions=us,eu&markets=h2h,totals&oddsFormat=decimal&dateFormat=iso`;
+      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${API_KEY}&regions=us,eu&markets=${API_MARKETS}&oddsFormat=decimal&dateFormat=iso`;
 
       let response: Response;
       try {
@@ -138,13 +205,10 @@ Deno.serve(async (req) => {
 
         for (const bk of event.bookmakers) {
           for (const mkt of bk.markets) {
-            const marketName = mkt.key === "h2h" ? "1X2" : mkt.key === "totals" ? "Over/Under 2.5" : mkt.key;
+            const marketName = mapMarketName(mkt.key, mkt.outcomes[0]?.point);
 
             for (const oc of mkt.outcomes) {
-              const outcomeName = mkt.key === "h2h"
-                ? (oc.name === event.home_team ? "Home Win" : oc.name === event.away_team ? "Away Win" : "Draw")
-                : oc.name;
-
+              const outcomeName = mapOutcomeName(mkt.key, oc.name, event.home_team, event.away_team);
               const impliedProb = 1 / oc.price;
 
               oddsRows.push({
@@ -185,7 +249,10 @@ Deno.serve(async (req) => {
           else lo += oddsRows.length;
         }
 
+        // Build predictions
         const predRows: any[] = [];
+        const predSummaries: { market: string; outcome: string; finalScore: number; impliedProb: number; modelProb: number }[] = [];
+
         for (const [, val] of predMap) {
           const avgImplied = val.probSum / val.count;
           const modelProb = Math.min(0.95, avgImplied * (0.9 + Math.random() * 0.2));
@@ -203,8 +270,25 @@ Deno.serve(async (req) => {
             consistency,
             final_score: finalScore,
             confidence: getConfidence(finalScore),
-            explanation: generateExplanation(val.market === "1X2" ? "h2h" : "totals", val.outcome, avgImplied, event.home_team, event.away_team),
+            explanation: "", // will be filled by AI
           });
+
+          predSummaries.push({ market: val.market, outcome: val.outcome, finalScore, impliedProb: avgImplied, modelProb });
+        }
+
+        // Generate AI explanation for top predictions
+        predSummaries.sort((a, b) => b.finalScore - a.finalScore);
+        const aiExplanation = await generateAIExplanation(predSummaries, event.home_team, event.away_team);
+
+        // Assign AI explanation to top 3 predictions, basic to rest
+        predRows.sort((a, b) => b.final_score - a.final_score);
+        for (let i = 0; i < predRows.length; i++) {
+          if (i < 3 && aiExplanation) {
+            predRows[i].explanation = aiExplanation;
+          } else {
+            const pct = (predRows[i].odds_implied_probability * 100).toFixed(0);
+            predRows[i].explanation = `${predRows[i].outcome} in ${predRows[i].market} at ${pct}% implied probability.`;
+          }
         }
 
         if (predRows.length > 0) {
