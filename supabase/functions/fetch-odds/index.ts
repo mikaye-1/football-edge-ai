@@ -67,15 +67,23 @@ Deno.serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const sportKeys = Object.keys(SPORT_KEYS);
+    // Accept optional body to limit sport keys
+    let selectedKeys: string[] | undefined;
+    try {
+      const body = await req.json();
+      if (body?.sport_keys) selectedKeys = body.sport_keys;
+    } catch { /* no body */ }
+
+    const sportKeys = selectedKeys || Object.keys(SPORT_KEYS);
     let totalMatches = 0;
     let totalOdds = 0;
     let totalPredictions = 0;
 
-    for (const sportKey of sportKeys) {
+    // Process all leagues in parallel
+    const results = await Promise.allSettled(sportKeys.map(async (sportKey) => {
       const league = SPORT_KEYS[sportKey];
+      if (!league) return { matches: 0, odds: 0, predictions: 0 };
 
-      // Fetch odds from The Odds API
       const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${API_KEY}&regions=us,eu&markets=h2h,totals&oddsFormat=decimal&dateFormat=iso`;
 
       let response: Response;
@@ -83,20 +91,21 @@ Deno.serve(async (req) => {
         response = await fetch(url);
       } catch {
         console.log(`Skipping ${sportKey}: fetch failed`);
-        continue;
+        return { matches: 0, odds: 0, predictions: 0 };
       }
 
       if (!response.ok) {
         const body = await response.text();
         console.log(`Skipping ${sportKey}: ${response.status} - ${body}`);
-        continue;
+        return { matches: 0, odds: 0, predictions: 0 };
       }
 
       const events: OddsAPIEvent[] = await response.json();
-      if (!events || events.length === 0) continue;
+      if (!events || events.length === 0) return { matches: 0, odds: 0, predictions: 0 };
+
+      let lm = 0, lo = 0, lp = 0;
 
       for (const event of events) {
-        // Upsert match
         const { data: matchData, error: matchErr } = await supabase
           .from("matches")
           .upsert({
@@ -117,12 +126,9 @@ Deno.serve(async (req) => {
         }
 
         const matchId = matchData.id;
-        totalMatches++;
+        lm++;
 
-        // Delete old odds for this match
         await supabase.from("odds").delete().eq("match_id", matchId);
-
-        // Delete old predictions for this match
         await supabase.from("predictions").delete().eq("match_id", matchId);
 
         if (!event.bookmakers || event.bookmakers.length === 0) continue;
@@ -173,22 +179,18 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Insert odds
         if (oddsRows.length > 0) {
           const { error: oddsErr } = await supabase.from("odds").insert(oddsRows);
           if (oddsErr) console.error("Odds insert error:", oddsErr);
-          else totalOdds += oddsRows.length;
+          else lo += oddsRows.length;
         }
 
-        // Generate predictions from aggregated odds
         const predRows: any[] = [];
         for (const [, val] of predMap) {
           const avgImplied = val.probSum / val.count;
-          // Model probability: slightly adjusted from odds (simulating model divergence)
           const modelProb = Math.min(0.95, avgImplied * (0.9 + Math.random() * 0.2));
           const formScore = 0.5 + Math.random() * 0.4;
           const consistency = val.count >= 3 ? 0.6 + Math.random() * 0.3 : 0.4 + Math.random() * 0.3;
-
           const finalScore = 0.35 * modelProb + 0.30 * avgImplied + 0.20 * formScore + 0.15 * consistency;
 
           predRows.push({
@@ -208,8 +210,18 @@ Deno.serve(async (req) => {
         if (predRows.length > 0) {
           const { error: predErr } = await supabase.from("predictions").insert(predRows);
           if (predErr) console.error("Predictions insert error:", predErr);
-          else totalPredictions += predRows.length;
+          else lp += predRows.length;
         }
+      }
+
+      return { matches: lm, odds: lo, predictions: lp };
+    }));
+
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        totalMatches += r.value.matches;
+        totalOdds += r.value.odds;
+        totalPredictions += r.value.predictions;
       }
     }
 

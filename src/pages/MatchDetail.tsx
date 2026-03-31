@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { LiveIndicator } from "@/components/LiveIndicator";
 import { ArrowLeft, BarChart3, Brain, Shield, Loader2 } from "lucide-react";
+import { OddsMovementChart } from "@/components/OddsMovementChart";
 
 const leagueFlags: Record<string, string> = {
   "Premier League": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
@@ -187,6 +188,20 @@ export default function MatchDetail() {
           </div>
         )}
 
+        {/* Odds Movement Charts */}
+        {odds.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <BarChart3 className="w-4 h-4 text-accent" />
+              <h2 className="font-semibold">Odds Movement</h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <OddsMovementChart odds={odds} market="1X2" />
+              <OddsMovementChart odds={odds} market="Over/Under 2.5" />
+            </div>
+          </div>
+        )}
+
         {/* Odds Breakdown */}
         {Object.keys(oddsByMarket).length > 0 && (
           <div>
@@ -196,7 +211,6 @@ export default function MatchDetail() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {Object.entries(oddsByMarket).map(([market, entries]) => {
-                // Get best odds per outcome
                 const bestByOutcome = new Map<string, typeof entries[0]>();
                 for (const e of entries) {
                   const existing = bestByOutcome.get(e.outcome);
