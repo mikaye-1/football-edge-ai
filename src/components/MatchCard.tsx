@@ -37,9 +37,14 @@ export function MatchCard({ match, index }: { match: DbMatch; index: number }) {
         {match.status === "live" ? (
           <LiveIndicator minute={match.minute} />
         ) : (
-          <span className="text-xs text-muted-foreground font-mono-code">
-            {new Date(match.kickoff_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </span>
+          <div className="text-right">
+            <span className="text-xs text-muted-foreground font-mono-code block">
+              {new Date(match.kickoff_time).toLocaleDateString([], { month: "short", day: "numeric" })}
+            </span>
+            <span className="text-xs text-muted-foreground font-mono-code">
+              {new Date(match.kickoff_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          </div>
         )}
       </div>
 
