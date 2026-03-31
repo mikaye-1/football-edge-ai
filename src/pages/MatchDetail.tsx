@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { LiveIndicator } from "@/components/LiveIndicator";
 import { ArrowLeft, BarChart3, Brain, Shield, Loader2 } from "lucide-react";
+import { OddsMovementChart } from "@/components/OddsMovementChart";
 
 const leagueFlags: Record<string, string> = {
   "Premier League": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
