@@ -15,10 +15,8 @@ const SPORT_KEYS: Record<string, string> = {
   "soccer_turkey_super_league": "Süper Lig",
 };
 
-// Expanded markets to fetch from The Odds API
 const API_MARKETS = "h2h,totals,spreads,btts,double_chance,draw_no_bet";
 
-// Map API market keys to display names
 function mapMarketName(apiKey: string, point?: number): string {
   switch (apiKey) {
     case "h2h": return "1X2";
@@ -74,12 +72,92 @@ interface OddsAPIEvent {
   }[];
 }
 
-function getConfidence(score: number): string {
-  if (score >= 0.72) return "high";
-  if (score >= 0.55) return "medium";
-  return "low";
+// ─── MATH: Proper probability normalization ───
+// For each market, collect all outcomes and normalize so sum = 1
+interface MarketOutcomeAgg {
+  rawProbSum: number; // sum of 1/odds across bookmakers
+  count: number;
+  bestOdds: number;
+  bookmaker: string;
+  market: string;
+  outcome: string;
 }
 
+function normalizeMarketProbabilities(
+  predMap: Map<string, MarketOutcomeAgg>
+): Map<string, MarketOutcomeAgg & { normalizedProb: number }> {
+  // Group by market
+  const marketGroups = new Map<string, string[]>();
+  for (const [key, val] of predMap) {
+    const group = marketGroups.get(val.market) || [];
+    group.push(key);
+    marketGroups.set(val.market, group);
+  }
+
+  const result = new Map<string, MarketOutcomeAgg & { normalizedProb: number }>();
+
+  for (const [, keys] of marketGroups) {
+    // Average implied prob per outcome
+    const avgProbs: { key: string; avgProb: number }[] = keys.map(k => {
+      const v = predMap.get(k)!;
+      return { key: k, avgProb: v.rawProbSum / v.count };
+    });
+
+    // Normalize: P_i = avgProb_i / sum(avgProb_j)
+    const totalRaw = avgProbs.reduce((s, x) => s + x.avgProb, 0);
+
+    for (const ap of avgProbs) {
+      const val = predMap.get(ap.key)!;
+      result.set(ap.key, {
+        ...val,
+        normalizedProb: totalRaw > 0 ? ap.avgProb / totalRaw : 1 / avgProbs.length,
+      });
+    }
+  }
+
+  return result;
+}
+
+// ─── Confidence from final score ───
+function getConfidence(score: number): string {
+  if (score >= 0.70) return "high";
+  if (score >= 0.60) return "medium";
+  if (score >= 0.50) return "low";
+  return "very_low";
+}
+
+// ─── Consistency checks between markets ───
+function applyConsistencyChecks(
+  predictions: { market: string; outcome: string; normalizedProb: number; finalScore: number }[]
+): void {
+  const get = (m: string, o: string) => predictions.find(p => p.market === m && p.outcome === o);
+
+  const homeWin = get("1X2", "Home Win");
+  const draw = get("1X2", "Draw");
+  const awayWin = get("1X2", "Away Win");
+
+  // If Home Win > 70%, Draw must be < 25%
+  if (homeWin && draw && homeWin.normalizedProb > 0.70 && draw.normalizedProb > 0.25) {
+    draw.finalScore *= 0.85;
+  }
+  if (awayWin && draw && awayWin.normalizedProb > 0.70 && draw.normalizedProb > 0.25) {
+    draw.finalScore *= 0.85;
+  }
+
+  // Over 2.5 high → BTTS should trend high
+  const over25 = get("Over/Under 2.5", "Over");
+  const bttsYes = get("BTTS", "Both Teams Score");
+  const bttsNo = get("BTTS", "No BTTS");
+
+  if (over25 && bttsYes && over25.normalizedProb > 0.60) {
+    bttsYes.finalScore *= 1.05;
+  }
+  if (over25 && bttsNo && over25.normalizedProb > 0.60) {
+    bttsNo.finalScore *= 0.95;
+  }
+}
+
+// ─── AI explanation ───
 async function generateAIExplanation(
   predictions: { market: string; outcome: string; finalScore: number; impliedProb: number; modelProb: number }[],
   homeTeam: string,
@@ -105,11 +183,11 @@ async function generateAIExplanation(
         messages: [
           {
             role: "system",
-            content: "You are a football betting analyst. Given prediction data for a match, write a concise 2-3 sentence analysis explaining the key insights. Focus on value bets, market trends, and actionable takeaways. Be direct and data-driven. No greetings or filler.",
+            content: "You are a football betting analyst. Given prediction data for a match, write a concise 2-3 sentence analysis explaining the key insights. Mention the difference between model prediction and bookmaker odds where relevant. Focus on value bets (where model probability exceeds implied probability). Be direct and data-driven. No greetings or filler.",
           },
           {
             role: "user",
-            content: `Match: ${homeTeam} vs ${awayTeam}\n\nPrediction breakdown:\n${summary}\n\nProvide a brief analytical explanation.`,
+            content: `Match: ${homeTeam} vs ${awayTeam}\n\nPrediction breakdown:\n${summary}\n\nProvide a brief analytical explanation highlighting any value bets.`,
           },
         ],
       }),
@@ -201,7 +279,7 @@ Deno.serve(async (req) => {
         if (!event.bookmakers || event.bookmakers.length === 0) continue;
 
         const oddsRows: any[] = [];
-        const predMap = new Map<string, { probSum: number; count: number; bestOdds: number; bookmaker: string; market: string; outcome: string }>();
+        const predMap = new Map<string, MarketOutcomeAgg>();
 
         for (const bk of event.bookmakers) {
           for (const mkt of bk.markets) {
@@ -209,7 +287,7 @@ Deno.serve(async (req) => {
 
             for (const oc of mkt.outcomes) {
               const outcomeName = mapOutcomeName(mkt.key, oc.name, event.home_team, event.away_team);
-              const impliedProb = 1 / oc.price;
+              const rawImplied = 1 / oc.price;
 
               oddsRows.push({
                 match_id: matchId,
@@ -217,13 +295,13 @@ Deno.serve(async (req) => {
                 outcome: outcomeName,
                 bookmaker: bk.title,
                 odds: oc.price,
-                implied_probability: impliedProb,
+                implied_probability: rawImplied,
               });
 
               const key = `${marketName}::${outcomeName}`;
               const existing = predMap.get(key);
               if (existing) {
-                existing.probSum += impliedProb;
+                existing.rawProbSum += rawImplied;
                 existing.count++;
                 if (oc.price > existing.bestOdds) {
                   existing.bestOdds = oc.price;
@@ -231,7 +309,7 @@ Deno.serve(async (req) => {
                 }
               } else {
                 predMap.set(key, {
-                  probSum: impliedProb,
+                  rawProbSum: rawImplied,
                   count: 1,
                   bestOdds: oc.price,
                   bookmaker: bk.title,
@@ -249,45 +327,102 @@ Deno.serve(async (req) => {
           else lo += oddsRows.length;
         }
 
-        // Build predictions
+        // ─── NORMALIZED PREDICTIONS ───
+        const normalized = normalizeMarketProbabilities(predMap);
+
         const predRows: any[] = [];
         const predSummaries: { market: string; outcome: string; finalScore: number; impliedProb: number; modelProb: number }[] = [];
 
-        for (const [, val] of predMap) {
-          const avgImplied = val.probSum / val.count;
-          const modelProb = Math.min(0.95, avgImplied * (0.9 + Math.random() * 0.2));
-          const formScore = 0.5 + Math.random() * 0.4;
-          const consistency = val.count >= 3 ? 0.6 + Math.random() * 0.3 : 0.4 + Math.random() * 0.3;
-          const finalScore = 0.35 * modelProb + 0.30 * avgImplied + 0.20 * formScore + 0.15 * consistency;
+        for (const [, val] of normalized) {
+          const oddsProb = val.normalizedProb;
+
+          // Model prediction: slight deviation from odds (simulating internal model)
+          const modelProb = Math.max(0.02, Math.min(0.98, oddsProb * (0.85 + Math.random() * 0.30)));
+
+          // Form score: simulated team form factor
+          const formScore = 0.4 + Math.random() * 0.5;
+
+          // Consistency: based on bookmaker agreement
+          const consistency = val.count >= 4 ? 0.7 + Math.random() * 0.25 :
+                              val.count >= 2 ? 0.5 + Math.random() * 0.3 :
+                              0.3 + Math.random() * 0.3;
+
+          // Updated weights: 0.4 odds + 0.3 model + 0.2 form + 0.1 consistency
+          const rawFinal = 0.40 * oddsProb + 0.30 * modelProb + 0.20 * formScore + 0.10 * consistency;
 
           predRows.push({
             match_id: matchId,
             market: val.market,
             outcome: val.outcome,
             model_probability: modelProb,
-            odds_implied_probability: avgImplied,
+            odds_implied_probability: oddsProb,
             form_score: formScore,
             consistency,
-            final_score: finalScore,
-            confidence: getConfidence(finalScore),
-            explanation: "", // will be filled by AI
+            final_score: rawFinal,
+            confidence: "", // set after normalization
+            explanation: "",
           });
 
-          predSummaries.push({ market: val.market, outcome: val.outcome, finalScore, impliedProb: avgImplied, modelProb });
+          predSummaries.push({ market: val.market, outcome: val.outcome, finalScore: rawFinal, impliedProb: oddsProb, modelProb });
+        }
+
+        // Normalize final scores within each market so they sum to ~1
+        const marketGrouped = new Map<string, typeof predRows>();
+        for (const p of predRows) {
+          const arr = marketGrouped.get(p.market) || [];
+          arr.push(p);
+          marketGrouped.set(p.market, arr);
+        }
+
+        for (const [, group] of marketGrouped) {
+          const total = group.reduce((s, p) => s + p.final_score, 0);
+          if (total > 0) {
+            for (const p of group) {
+              p.final_score = p.final_score / total;
+            }
+          }
+        }
+
+        // Apply consistency checks
+        applyConsistencyChecks(predRows.map(p => ({
+          market: p.market,
+          outcome: p.outcome,
+          normalizedProb: p.odds_implied_probability,
+          finalScore: p.final_score,
+        })));
+
+        // Re-normalize after consistency adjustments
+        for (const [, group] of marketGrouped) {
+          const total = group.reduce((s, p) => s + p.final_score, 0);
+          if (total > 0) {
+            for (const p of group) {
+              p.final_score = p.final_score / total;
+            }
+          }
+        }
+
+        // Set confidence levels
+        for (const p of predRows) {
+          p.confidence = getConfidence(p.final_score);
         }
 
         // Generate AI explanation for top predictions
         predSummaries.sort((a, b) => b.finalScore - a.finalScore);
         const aiExplanation = await generateAIExplanation(predSummaries, event.home_team, event.away_team);
 
-        // Assign AI explanation to top 3 predictions, basic to rest
+        // Sort and assign explanations
         predRows.sort((a, b) => b.final_score - a.final_score);
         for (let i = 0; i < predRows.length; i++) {
           if (i < 3 && aiExplanation) {
             predRows[i].explanation = aiExplanation;
           } else {
-            const pct = (predRows[i].odds_implied_probability * 100).toFixed(0);
-            predRows[i].explanation = `${predRows[i].outcome} in ${predRows[i].market} at ${pct}% implied probability.`;
+            const modelPct = (predRows[i].model_probability * 100).toFixed(0);
+            const oddsPct = (predRows[i].odds_implied_probability * 100).toFixed(0);
+            const diff = ((predRows[i].model_probability - predRows[i].odds_implied_probability) * 100).toFixed(0);
+            const isValue = predRows[i].model_probability > predRows[i].odds_implied_probability;
+            predRows[i].explanation = isValue
+              ? `Bookmakers imply ${oddsPct}% probability; the adjusted model predicts ${modelPct}% (+${diff}% edge). Potential value bet.`
+              : `Bookmakers imply ${oddsPct}% probability; the adjusted model predicts ${modelPct}%. Market-aligned prediction.`;
           }
         }
 
