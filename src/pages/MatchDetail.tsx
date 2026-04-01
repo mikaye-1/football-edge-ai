@@ -1,11 +1,14 @@
+import { useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { LiveIndicator } from "@/components/LiveIndicator";
-import { ArrowLeft, BarChart3, Brain, Shield, Loader2 } from "lucide-react";
+import { MarketFilter } from "@/components/MarketFilter";
+import { ValueBetAlert } from "@/components/ValueBetAlert";
+import { PredictionCard } from "@/components/PredictionCard";
 import { OddsMovementChart } from "@/components/OddsMovementChart";
+import { ArrowLeft, BarChart3, Brain, Shield, Loader2, Trophy } from "lucide-react";
 
 const leagueFlags: Record<string, string> = {
   "Premier League": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
@@ -20,15 +23,12 @@ const leagueFlags: Record<string, string> = {
 export default function MatchDetail() {
   const { matchId } = useParams();
   const navigate = useNavigate();
+  const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
 
-  const { data: match, isLoading: matchLoading } = useQuery({
+  const { data: match, isLoading } = useQuery({
     queryKey: ["match", matchId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("matches")
-        .select("*")
-        .eq("id", matchId!)
-        .single();
+      const { data, error } = await supabase.from("matches").select("*").eq("id", matchId!).single();
       if (error) throw error;
       return data;
     },
@@ -39,11 +39,7 @@ export default function MatchDetail() {
   const { data: preds = [] } = useQuery({
     queryKey: ["match-predictions", matchId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("predictions")
-        .select("*")
-        .eq("match_id", matchId!)
-        .order("final_score", { ascending: false });
+      const { data, error } = await supabase.from("predictions").select("*").eq("match_id", matchId!).order("final_score", { ascending: false });
       if (error) throw error;
       return data;
     },
@@ -54,10 +50,7 @@ export default function MatchDetail() {
   const { data: odds = [] } = useQuery({
     queryKey: ["match-odds", matchId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("odds")
-        .select("*")
-        .eq("match_id", matchId!);
+      const { data, error } = await supabase.from("odds").select("*").eq("match_id", matchId!);
       if (error) throw error;
       return data;
     },
@@ -65,7 +58,47 @@ export default function MatchDetail() {
     refetchInterval: 30000,
   });
 
-  if (matchLoading) {
+  // Available markets from predictions
+  const allMarkets = useMemo(() => [...new Set(preds.map(p => p.market))], [preds]);
+
+  // Initialize selected markets to all on first load
+  const activeMarkets = selectedMarkets.length > 0 ? selectedMarkets : allMarkets;
+
+  const toggleMarket = (market: string) => {
+    setSelectedMarkets(prev => {
+      if (prev.length === 0) {
+        // First toggle: select only this one (deselect others)
+        return [market];
+      }
+      return prev.includes(market) ? prev.filter(m => m !== market) : [...prev, market];
+    });
+  };
+
+  const filteredPreds = useMemo(
+    () => preds.filter(p => activeMarkets.includes(p.market)),
+    [preds, activeMarkets]
+  );
+
+  // Top 3 ranked predictions
+  const topRanked = useMemo(
+    () => [...preds].sort((a, b) => (b.final_score * b.consistency) - (a.final_score * a.consistency)).slice(0, 3),
+    [preds]
+  );
+
+  // Group odds by market
+  const oddsByMarket = useMemo(() => {
+    const filtered = odds.filter(o => activeMarkets.includes(o.market));
+    return filtered.reduce((acc, o) => {
+      if (!acc[o.market]) acc[o.market] = [];
+      acc[o.market].push(o);
+      return acc;
+    }, {} as Record<string, typeof odds>);
+  }, [odds, activeMarkets]);
+
+  // Odds chart markets
+  const oddsMarkets = useMemo(() => [...new Set(odds.map(o => o.market))].filter(m => activeMarkets.includes(m)), [odds, activeMarkets]);
+
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -80,13 +113,6 @@ export default function MatchDetail() {
       </div>
     );
   }
-
-  // Group odds by market for display
-  const oddsByMarket = odds.reduce((acc, o) => {
-    if (!acc[o.market]) acc[o.market] = [];
-    acc[o.market].push(o);
-    return acc;
-  }, {} as Record<string, typeof odds>);
 
   return (
     <div className="min-h-screen bg-background">
@@ -126,6 +152,8 @@ export default function MatchDetail() {
               <div className="text-center">
                 <p className="text-xl font-mono-code text-muted-foreground">vs</p>
                 <p className="text-xs text-muted-foreground mt-1">
+                  {new Date(match.kickoff_time).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                  {" · "}
                   {new Date(match.kickoff_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </p>
               </div>
@@ -137,81 +165,71 @@ export default function MatchDetail() {
           </div>
         </motion.div>
 
-        {/* Predictions */}
-        {preds.length > 0 && (
+        {/* Value Bet Alerts */}
+        <ValueBetAlert predictions={preds} />
+
+        {/* Top 3 Ranked */}
+        {topRanked.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Trophy className="w-4 h-4 text-accent" />
+              <h2 className="font-semibold text-sm">Top 3 Ranked Predictions</h2>
+              <span className="text-xs text-muted-foreground">(confidence × consistency)</span>
+            </div>
+            <div className="space-y-2">
+              {topRanked.map((p, i) => (
+                <PredictionCard key={p.id} prediction={p} index={i} rank={i + 1} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Market Filter */}
+        {allMarkets.length > 0 && (
+          <MarketFilter markets={allMarkets} selected={selectedMarkets} onToggle={toggleMarket} />
+        )}
+
+        {/* All Predictions (filtered) */}
+        {filteredPreds.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Brain className="w-4 h-4 text-primary" />
-              <h2 className="font-semibold">All Predictions</h2>
+              <h2 className="font-semibold text-sm">All Predictions</h2>
+              <span className="text-xs text-muted-foreground">({filteredPreds.length} outcomes)</span>
             </div>
             <div className="space-y-2">
-              {preds.map((p, i) => (
-                <motion.div
-                  key={p.id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="gradient-card rounded-lg border border-border p-4"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-sm">{p.market}</span>
-                      <span className="text-primary font-semibold text-sm">{p.outcome}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono-code text-lg font-bold text-primary">{(p.final_score * 100).toFixed(0)}%</span>
-                      <ConfidenceBadge level={p.confidence as "high" | "medium" | "low"} />
-                    </div>
-                  </div>
-                  {p.explanation && <p className="text-xs text-muted-foreground mb-3">{p.explanation}</p>}
-                  <div className="grid grid-cols-4 gap-2 text-xs">
-                    <div className="bg-secondary/50 rounded p-2 text-center">
-                      <p className="text-muted-foreground">Model</p>
-                      <p className="font-mono-code font-semibold">{(p.model_probability * 100).toFixed(0)}%</p>
-                    </div>
-                    <div className="bg-secondary/50 rounded p-2 text-center">
-                      <p className="text-muted-foreground">Odds</p>
-                      <p className="font-mono-code font-semibold">{(p.odds_implied_probability * 100).toFixed(0)}%</p>
-                    </div>
-                    <div className="bg-secondary/50 rounded p-2 text-center">
-                      <p className="text-muted-foreground">Form</p>
-                      <p className="font-mono-code font-semibold">{(p.form_score * 100).toFixed(0)}%</p>
-                    </div>
-                    <div className="bg-secondary/50 rounded p-2 text-center">
-                      <p className="text-muted-foreground">Consistency</p>
-                      <p className="font-mono-code font-semibold">{(p.consistency * 100).toFixed(0)}%</p>
-                    </div>
-                  </div>
-                </motion.div>
+              {filteredPreds.map((p, i) => (
+                <PredictionCard key={p.id} prediction={p} index={i} />
               ))}
             </div>
           </div>
         )}
 
         {/* Odds Movement Charts */}
-        {odds.length > 0 && (
+        {oddsMarkets.length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <BarChart3 className="w-4 h-4 text-accent" />
-              <h2 className="font-semibold">Odds Movement</h2>
+              <h2 className="font-semibold text-sm">Odds Movement</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <OddsMovementChart odds={odds} market="1X2" />
-              <OddsMovementChart odds={odds} market="Over/Under 2.5" />
+              {oddsMarkets.slice(0, 4).map(m => (
+                <OddsMovementChart key={m} odds={odds} market={m} />
+              ))}
             </div>
           </div>
         )}
 
-        {/* Odds Breakdown */}
+        {/* Live Odds Table */}
         {Object.keys(oddsByMarket).length > 0 && (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <BarChart3 className="w-4 h-4 text-accent" />
-              <h2 className="font-semibold">Live Odds</h2>
+              <h2 className="font-semibold text-sm">Live Odds</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {Object.entries(oddsByMarket).map(([market, entries]) => {
-                const bestByOutcome = new Map<string, typeof entries[0]>();
+                const bestByOutcome = new Map<string, (typeof entries)[0]>();
                 for (const e of entries) {
                   const existing = bestByOutcome.get(e.outcome);
                   if (!existing || e.odds > existing.odds) bestByOutcome.set(e.outcome, e);
