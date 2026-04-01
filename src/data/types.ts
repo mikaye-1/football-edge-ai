@@ -7,7 +7,7 @@ export type League =
   | "MLS"
   | "Süper Lig";
 
-export type ConfidenceLevel = "high" | "medium" | "low";
+export type ConfidenceLevel = "high" | "medium" | "low" | "very_low";
 
 export type MarketType =
   | "1X2"
