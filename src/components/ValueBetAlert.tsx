@@ -7,7 +7,6 @@ interface ValueBetAlertProps {
 }
 
 export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
-  // Value bet = model_probability > odds_implied_probability (positive edge)
   const valueBets = predictions
     .filter(p => p.model_probability > p.odds_implied_probability)
     .sort((a, b) => (b.model_probability - b.odds_implied_probability) - (a.model_probability - a.odds_implied_probability))
@@ -19,12 +18,12 @@ export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-lg border border-accent/30 bg-accent/5 p-4"
+      className="rounded-lg border border-accent/30 bg-accent/5 p-3 sm:p-4"
     >
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex flex-wrap items-center gap-2 mb-3">
         <Zap className="w-4 h-4 text-accent" />
         <h3 className="font-semibold text-sm text-accent">Value Bet Alerts</h3>
-        <span className="text-xs text-muted-foreground">Model probability exceeds market odds</span>
+        <span className="text-[10px] sm:text-xs text-muted-foreground">Model probability exceeds market odds</span>
       </div>
       <div className="space-y-2">
         {valueBets.map((vb, i) => {
@@ -35,23 +34,23 @@ export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.08 }}
-              className="flex items-center justify-between text-sm bg-secondary/30 rounded-md px-3 py-2"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-2 text-sm bg-secondary/30 rounded-md px-3 py-2"
             >
-              <div className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-accent/20 text-accent text-xs font-bold flex items-center justify-center">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-5 h-5 rounded-full bg-accent/20 text-accent text-xs font-bold flex items-center justify-center shrink-0">
                   {i + 1}
                 </span>
-                <span className="font-medium">{vb.market}:</span>
-                <span className="text-foreground font-semibold">{vb.outcome}</span>
+                <span className="font-medium truncate">{vb.market}:</span>
+                <span className="text-foreground font-semibold truncate">{vb.outcome}</span>
               </div>
-              <div className="flex items-center gap-3 text-xs">
+              <div className="flex items-center gap-3 text-xs pl-7 sm:pl-0">
                 <span className="text-muted-foreground">
                   Model: <span className="font-mono-code text-foreground">{(vb.model_probability * 100).toFixed(0)}%</span>
                 </span>
                 <span className="text-muted-foreground">
                   Odds: <span className="font-mono-code text-foreground">{(vb.odds_implied_probability * 100).toFixed(0)}%</span>
                 </span>
-                <span className="font-mono-code font-bold text-accent">+{edge}% edge</span>
+                <span className="font-mono-code font-bold text-accent">+{edge}%</span>
               </div>
             </motion.div>
           );

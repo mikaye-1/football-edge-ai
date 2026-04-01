@@ -20,7 +20,6 @@ export function RefreshTimer() {
     try {
       const { error } = await supabase.functions.invoke("fetch-odds");
       if (error) console.error("Fetch odds error:", error);
-      // Invalidate all queries to refresh UI
       queryClient.invalidateQueries();
     } catch (e) {
       console.error("Fetch error:", e);
@@ -31,19 +30,19 @@ export function RefreshTimer() {
   };
 
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <div className="flex items-center gap-2 sm:gap-3">
+      <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
         <RefreshCw className={`w-3.5 h-3.5 ${countdown <= 5 ? "text-primary animate-spin" : ""}`} />
         <span className="font-mono-code">
-          {countdown <= 5 ? "Refreshing..." : `Next update: ${countdown}s`}
+          {countdown <= 5 ? "Refreshing..." : `${countdown}s`}
         </span>
       </div>
       <button
         onClick={handleFetch}
         disabled={fetching}
-        className="px-3 py-1 rounded-md text-xs font-semibold gradient-primary text-primary-foreground disabled:opacity-50 transition-all"
+        className="px-2.5 sm:px-3 py-1 rounded-md text-xs font-semibold gradient-primary text-primary-foreground disabled:opacity-50 transition-all"
       >
-        {fetching ? "Fetching..." : "Fetch Now"}
+        {fetching ? "..." : "Fetch Now"}
       </button>
     </div>
   );

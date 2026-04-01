@@ -131,36 +131,36 @@ export default function MatchDetail() {
         </div>
       </header>
 
-      <main className="container max-w-5xl mx-auto px-4 py-6 space-y-6">
+      <main className="container max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
         {/* Match Header */}
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="gradient-card rounded-lg border border-border p-6">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="gradient-card rounded-lg border border-border p-4 sm:p-6">
           <div className="flex items-center gap-2 mb-4">
-            <span className="text-sm text-muted-foreground">{leagueFlags[match.league] || "⚽"} {match.league}</span>
+            <span className="text-xs sm:text-sm text-muted-foreground">{leagueFlags[match.league] || "⚽"} {match.league}</span>
             {match.status === "live" && <LiveIndicator minute={match.minute} />}
           </div>
-          <div className="flex items-center justify-center gap-8">
-            <div className="text-center">
-              <p className="text-xl font-bold">{match.home_team}</p>
-              <p className="text-xs text-muted-foreground mt-1">Home</p>
+          <div className="flex items-center justify-center gap-4 sm:gap-8">
+            <div className="text-center flex-1">
+              <p className="text-base sm:text-xl font-bold leading-tight">{match.home_team}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Home</p>
             </div>
             {match.home_score !== null && match.away_score !== null ? (
-              <div className="text-center">
-                <p className="text-3xl font-bold font-mono-code">{match.home_score} - {match.away_score}</p>
+              <div className="text-center shrink-0">
+                <p className="text-2xl sm:text-3xl font-bold font-mono-code">{match.home_score} - {match.away_score}</p>
                 {match.minute && <p className="text-xs text-destructive mt-1">{match.minute}'</p>}
               </div>
             ) : (
-              <div className="text-center">
-                <p className="text-xl font-mono-code text-muted-foreground">vs</p>
-                <p className="text-xs text-muted-foreground mt-1">
+              <div className="text-center shrink-0">
+                <p className="text-lg sm:text-xl font-mono-code text-muted-foreground">vs</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
                   {new Date(match.kickoff_time).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
                   {" · "}
                   {new Date(match.kickoff_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </p>
               </div>
             )}
-            <div className="text-center">
-              <p className="text-xl font-bold">{match.away_team}</p>
-              <p className="text-xs text-muted-foreground mt-1">Away</p>
+            <div className="text-center flex-1">
+              <p className="text-base sm:text-xl font-bold leading-tight">{match.away_team}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Away</p>
             </div>
           </div>
         </motion.div>

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
 import MatchDetail from "./pages/MatchDetail.tsx";
+import Performance from "./pages/Performance.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -18,6 +19,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/match/:matchId" element={<MatchDetail />} />
+          <Route path="/performance" element={<Performance />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
