@@ -103,6 +103,60 @@ export type Database = {
           },
         ]
       }
+      prediction_results: {
+        Row: {
+          actual_outcome: string | null
+          created_at: string
+          id: string
+          market: string
+          match_id: string
+          predicted_outcome: string
+          predicted_probability: number
+          prediction_id: string
+          settled_at: string | null
+          was_correct: boolean | null
+        }
+        Insert: {
+          actual_outcome?: string | null
+          created_at?: string
+          id?: string
+          market: string
+          match_id: string
+          predicted_outcome: string
+          predicted_probability: number
+          prediction_id: string
+          settled_at?: string | null
+          was_correct?: boolean | null
+        }
+        Update: {
+          actual_outcome?: string | null
+          created_at?: string
+          id?: string
+          market?: string
+          match_id?: string
+          predicted_outcome?: string
+          predicted_probability?: number
+          prediction_id?: string
+          settled_at?: string | null
+          was_correct?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prediction_results_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prediction_results_prediction_id_fkey"
+            columns: ["prediction_id"]
+            isOneToOne: false
+            referencedRelation: "predictions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       predictions: {
         Row: {
           confidence: string
