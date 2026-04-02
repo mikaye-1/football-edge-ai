@@ -305,8 +305,8 @@ Deno.serve(async (req) => {
 
         for (const bk of event.bookmakers) {
           for (const mkt of bk.markets) {
-            // For alternate_totals, only keep desired point values (1.5, 2.5, 3.5)
-            if (mkt.key === "alternate_totals") {
+            // For totals and alternate_totals, only keep desired point values (1.5, 2.5, 3.5)
+            if (mkt.key === "alternate_totals" || mkt.key === "totals") {
               const point = mkt.outcomes[0]?.point;
               if (point !== undefined && !DESIRED_TOTALS.has(point)) continue;
             }
