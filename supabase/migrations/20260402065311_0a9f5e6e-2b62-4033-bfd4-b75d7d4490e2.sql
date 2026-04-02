@@ -1,0 +1,2 @@
+ALTER TABLE public.predictions DROP CONSTRAINT predictions_confidence_check;
+ALTER TABLE public.predictions ADD CONSTRAINT predictions_confidence_check CHECK (confidence = ANY (ARRAY['high'::text, 'medium'::text, 'low'::text, 'very_low'::text]));

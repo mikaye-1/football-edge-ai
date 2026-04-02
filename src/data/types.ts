@@ -24,7 +24,8 @@ export type MarketType =
   | "Clean Sheet"
   | "Winning Margin"
   | "Corners O/U"
-  | "Cards O/U";
+  | "Cards O/U"
+  | string;
 
 export interface Match {
   id: string;
