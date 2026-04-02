@@ -15,12 +15,17 @@ const SPORT_KEYS: Record<string, string> = {
   "soccer_turkey_super_league": "Süper Lig",
 };
 
-const API_MARKETS = "h2h,totals,spreads,btts,double_chance,draw_no_bet";
+const API_MARKETS = "h2h,h2h_lay,totals,alternate_totals,spreads,btts,double_chance,draw_no_bet";
+
+const DESIRED_TOTALS = new Set([1.5, 2.5, 3.5]);
 
 function mapMarketName(apiKey: string, point?: number): string {
   switch (apiKey) {
     case "h2h": return "1X2";
-    case "totals": return point ? `Over/Under ${point}` : "Over/Under 2.5";
+    case "h2h_lay": return "Not to Win";
+    case "totals":
+    case "alternate_totals":
+      return point ? `Over/Under ${point}` : "Over/Under 2.5";
     case "spreads": return "Handicap";
     case "btts": return "BTTS";
     case "double_chance": return "Double Chance";
@@ -34,6 +39,11 @@ function mapOutcomeName(apiKey: string, name: string, homeTeam: string, awayTeam
     if (name === homeTeam) return "Home Win";
     if (name === awayTeam) return "Away Win";
     return "Draw";
+  }
+  if (apiKey === "h2h_lay") {
+    if (name === homeTeam) return "Home Not to Win";
+    if (name === awayTeam) return "Away Not to Win";
+    return "No Draw";
   }
   if (apiKey === "double_chance") {
     if (name === `${homeTeam} or Draw`) return "Home or Draw";
@@ -283,6 +293,11 @@ Deno.serve(async (req) => {
 
         for (const bk of event.bookmakers) {
           for (const mkt of bk.markets) {
+            // For alternate_totals, only keep desired point values (1.5, 2.5, 3.5)
+            if (mkt.key === "alternate_totals") {
+              const point = mkt.outcomes[0]?.point;
+              if (point !== undefined && !DESIRED_TOTALS.has(point)) continue;
+            }
             const marketName = mapMarketName(mkt.key, mkt.outcomes[0]?.point);
 
             for (const oc of mkt.outcomes) {

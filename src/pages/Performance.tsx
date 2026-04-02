@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
 
 interface PredictionResult {
   id: string;
@@ -35,7 +35,20 @@ function usePerformanceData() {
 
 export default function Performance() {
   const navigate = useNavigate();
-  const { data: results = [], isLoading } = usePerformanceData();
+  const { data: results = [], isLoading, refetch } = usePerformanceData();
+  const [settling, setSettling] = useState(false);
+
+  const handleSettle = async () => {
+    setSettling(true);
+    try {
+      await supabase.functions.invoke("settle-predictions");
+      await refetch();
+    } catch (e) {
+      console.error("Settlement error:", e);
+    } finally {
+      setSettling(false);
+    }
+  };
 
   const stats = useMemo(() => {
     if (results.length === 0) return null;
@@ -98,6 +111,16 @@ export default function Performance() {
             </span>
           </div>
           <span className="text-xs text-muted-foreground ml-2">Performance Tracker</span>
+          <div className="ml-auto">
+            <button
+              onClick={handleSettle}
+              disabled={settling}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${settling ? "animate-spin" : ""}`} />
+              {settling ? "Settling..." : "Settle Predictions"}
+            </button>
+          </div>
         </div>
       </header>
 
