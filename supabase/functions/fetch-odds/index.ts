@@ -40,6 +40,11 @@ function mapOutcomeName(apiKey: string, name: string, homeTeam: string, awayTeam
     if (name === awayTeam) return "Away Win";
     return "Draw";
   }
+  if (apiKey === "h2h_lay") {
+    if (name === homeTeam) return "Home Not to Win";
+    if (name === awayTeam) return "Away Not to Win";
+    return "No Draw";
+  }
   if (apiKey === "double_chance") {
     if (name === `${homeTeam} or Draw`) return "Home or Draw";
     if (name === `${awayTeam} or Draw`) return "Away or Draw";
