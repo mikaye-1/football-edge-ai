@@ -11,6 +11,7 @@ export type ConfidenceLevel = "high" | "medium" | "low" | "very_low";
 
 export type MarketType =
   | "1X2"
+  | "Not to Win"
   | "Double Chance"
   | "Draw No Bet"
   | "Over/Under 2.5"

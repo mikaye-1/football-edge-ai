@@ -120,6 +120,18 @@ export function useFetchOdds() {
       if (error) throw error;
       return data;
     },
-    enabled: false, // Only trigger manually
+    enabled: false,
+  });
+}
+
+export function useSettlePredictions() {
+  return useQuery({
+    queryKey: ["settle-predictions-trigger"],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("settle-predictions");
+      if (error) throw error;
+      return data;
+    },
+    enabled: false,
   });
 }
