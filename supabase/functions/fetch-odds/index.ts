@@ -15,12 +15,17 @@ const SPORT_KEYS: Record<string, string> = {
   "soccer_turkey_super_league": "Süper Lig",
 };
 
-const API_MARKETS = "h2h,totals,spreads,btts,double_chance,draw_no_bet";
+const API_MARKETS = "h2h,h2h_lay,totals,alternate_totals,spreads,btts,double_chance,draw_no_bet";
+
+const DESIRED_TOTALS = new Set([1.5, 2.5, 3.5]);
 
 function mapMarketName(apiKey: string, point?: number): string {
   switch (apiKey) {
     case "h2h": return "1X2";
-    case "totals": return point ? `Over/Under ${point}` : "Over/Under 2.5";
+    case "h2h_lay": return "Not to Win";
+    case "totals":
+    case "alternate_totals":
+      return point ? `Over/Under ${point}` : "Over/Under 2.5";
     case "spreads": return "Handicap";
     case "btts": return "BTTS";
     case "double_chance": return "Double Chance";
