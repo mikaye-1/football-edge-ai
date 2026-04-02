@@ -10,12 +10,13 @@ const SPORT_KEYS: Record<string, string> = {
   "soccer_spain_la_liga": "La Liga",
   "soccer_italy_serie_a": "Serie A",
   "soccer_france_ligue_one": "Ligue 1",
-  "soccer_saudi_professional_league": "Saudi Pro League",
   "soccer_usa_mls": "MLS",
   "soccer_turkey_super_league": "Süper Lig",
 };
 
-const API_MARKETS = "h2h,h2h_lay,totals,alternate_totals,spreads,btts,double_chance,draw_no_bet";
+// Tiered market sets — try extended first, fallback to basic on 422
+const MARKETS_EXTENDED = "h2h,h2h_lay,totals,alternate_totals,spreads,btts,double_chance,draw_no_bet";
+const MARKETS_BASIC = "h2h,totals,spreads";
 
 const DESIRED_TOTALS = new Set([1.5, 2.5, 3.5]);
 
@@ -30,6 +31,12 @@ function mapMarketName(apiKey: string, point?: number): string {
     case "btts": return "BTTS";
     case "double_chance": return "Double Chance";
     case "draw_no_bet": return "Draw No Bet";
+    case "totals_corners":
+    case "alternate_totals_corners":
+      return point ? `Corners O/U ${point}` : "Corners O/U";
+    case "totals_cards":
+    case "alternate_totals_cards":
+      return point ? `Cards O/U ${point}` : "Cards O/U";
     default: return apiKey;
   }
 }
@@ -82,10 +89,8 @@ interface OddsAPIEvent {
   }[];
 }
 
-// ─── MATH: Proper probability normalization ───
-// For each market, collect all outcomes and normalize so sum = 1
 interface MarketOutcomeAgg {
-  rawProbSum: number; // sum of 1/odds across bookmakers
+  rawProbSum: number;
   count: number;
   bestOdds: number;
   bookmaker: string;
@@ -96,7 +101,6 @@ interface MarketOutcomeAgg {
 function normalizeMarketProbabilities(
   predMap: Map<string, MarketOutcomeAgg>
 ): Map<string, MarketOutcomeAgg & { normalizedProb: number }> {
-  // Group by market
   const marketGroups = new Map<string, string[]>();
   for (const [key, val] of predMap) {
     const group = marketGroups.get(val.market) || [];
@@ -107,15 +111,11 @@ function normalizeMarketProbabilities(
   const result = new Map<string, MarketOutcomeAgg & { normalizedProb: number }>();
 
   for (const [, keys] of marketGroups) {
-    // Average implied prob per outcome
-    const avgProbs: { key: string; avgProb: number }[] = keys.map(k => {
+    const avgProbs = keys.map(k => {
       const v = predMap.get(k)!;
       return { key: k, avgProb: v.rawProbSum / v.count };
     });
-
-    // Normalize: P_i = avgProb_i / sum(avgProb_j)
     const totalRaw = avgProbs.reduce((s, x) => s + x.avgProb, 0);
-
     for (const ap of avgProbs) {
       const val = predMap.get(ap.key)!;
       result.set(ap.key, {
@@ -124,11 +124,9 @@ function normalizeMarketProbabilities(
       });
     }
   }
-
   return result;
 }
 
-// ─── Confidence from final score ───
 function getConfidence(score: number): string {
   if (score >= 0.70) return "high";
   if (score >= 0.60) return "medium";
@@ -136,7 +134,6 @@ function getConfidence(score: number): string {
   return "very_low";
 }
 
-// ─── Consistency checks between markets ───
 function applyConsistencyChecks(
   predictions: { market: string; outcome: string; normalizedProb: number; finalScore: number }[]
 ): void {
@@ -146,7 +143,6 @@ function applyConsistencyChecks(
   const draw = get("1X2", "Draw");
   const awayWin = get("1X2", "Away Win");
 
-  // If Home Win > 70%, Draw must be < 25%
   if (homeWin && draw && homeWin.normalizedProb > 0.70 && draw.normalizedProb > 0.25) {
     draw.finalScore *= 0.85;
   }
@@ -154,7 +150,6 @@ function applyConsistencyChecks(
     draw.finalScore *= 0.85;
   }
 
-  // Over 2.5 high → BTTS should trend high
   const over25 = get("Over/Under 2.5", "Over");
   const bttsYes = get("BTTS", "Both Teams Score");
   const bttsNo = get("BTTS", "No BTTS");
@@ -167,7 +162,6 @@ function applyConsistencyChecks(
   }
 }
 
-// ─── AI explanation ───
 async function generateAIExplanation(
   predictions: { market: string; outcome: string; finalScore: number; impliedProb: number; modelProb: number }[],
   homeTeam: string,
@@ -211,6 +205,40 @@ async function generateAIExplanation(
   }
 }
 
+// Fetch events for a sport key with market fallback
+async function fetchEventsWithFallback(sportKey: string, apiKey: string): Promise<OddsAPIEvent[]> {
+  const baseUrl = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${apiKey}&regions=us,eu&oddsFormat=decimal&dateFormat=iso`;
+
+  // Try extended markets first
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}&markets=${MARKETS_EXTENDED}`);
+  } catch {
+    console.log(`Skipping ${sportKey}: fetch failed`);
+    return [];
+  }
+
+  // If 422 (unsupported markets), retry with basic
+  if (response.status === 422) {
+    await response.text(); // consume body
+    console.log(`${sportKey}: extended markets not supported, trying basic`);
+    try {
+      response = await fetch(`${baseUrl}&markets=${MARKETS_BASIC}`);
+    } catch {
+      return [];
+    }
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    console.log(`Skipping ${sportKey}: ${response.status} - ${body}`);
+    return [];
+  }
+
+  const events: OddsAPIEvent[] = await response.json();
+  return events || [];
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -239,24 +267,8 @@ Deno.serve(async (req) => {
       const league = SPORT_KEYS[sportKey];
       if (!league) return { matches: 0, odds: 0, predictions: 0 };
 
-      const url = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds/?apiKey=${API_KEY}&regions=us,eu&markets=${API_MARKETS}&oddsFormat=decimal&dateFormat=iso`;
-
-      let response: Response;
-      try {
-        response = await fetch(url);
-      } catch {
-        console.log(`Skipping ${sportKey}: fetch failed`);
-        return { matches: 0, odds: 0, predictions: 0 };
-      }
-
-      if (!response.ok) {
-        const body = await response.text();
-        console.log(`Skipping ${sportKey}: ${response.status} - ${body}`);
-        return { matches: 0, odds: 0, predictions: 0 };
-      }
-
-      const events: OddsAPIEvent[] = await response.json();
-      if (!events || events.length === 0) return { matches: 0, odds: 0, predictions: 0 };
+      const events = await fetchEventsWithFallback(sportKey, API_KEY);
+      if (events.length === 0) return { matches: 0, odds: 0, predictions: 0 };
 
       let lm = 0, lo = 0, lp = 0;
 
@@ -342,7 +354,7 @@ Deno.serve(async (req) => {
           else lo += oddsRows.length;
         }
 
-        // ─── NORMALIZED PREDICTIONS ───
+        // Normalized predictions
         const normalized = normalizeMarketProbabilities(predMap);
 
         const predRows: any[] = [];
@@ -350,19 +362,12 @@ Deno.serve(async (req) => {
 
         for (const [, val] of normalized) {
           const oddsProb = val.normalizedProb;
-
-          // Model prediction: slight deviation from odds (simulating internal model)
           const modelProb = Math.max(0.02, Math.min(0.98, oddsProb * (0.85 + Math.random() * 0.30)));
-
-          // Form score: simulated team form factor
           const formScore = 0.4 + Math.random() * 0.5;
-
-          // Consistency: based on bookmaker agreement
           const consistency = val.count >= 4 ? 0.7 + Math.random() * 0.25 :
                               val.count >= 2 ? 0.5 + Math.random() * 0.3 :
                               0.3 + Math.random() * 0.3;
 
-          // Updated weights: 0.4 odds + 0.3 model + 0.2 form + 0.1 consistency
           const rawFinal = 0.40 * oddsProb + 0.30 * modelProb + 0.20 * formScore + 0.10 * consistency;
 
           predRows.push({
@@ -374,14 +379,14 @@ Deno.serve(async (req) => {
             form_score: formScore,
             consistency,
             final_score: rawFinal,
-            confidence: "", // set after normalization
+            confidence: "",
             explanation: "",
           });
 
           predSummaries.push({ market: val.market, outcome: val.outcome, finalScore: rawFinal, impliedProb: oddsProb, modelProb });
         }
 
-        // Normalize final scores within each market so they sum to ~1
+        // Normalize final scores within each market
         const marketGrouped = new Map<string, typeof predRows>();
         for (const p of predRows) {
           const arr = marketGrouped.get(p.market) || [];
@@ -390,7 +395,7 @@ Deno.serve(async (req) => {
         }
 
         for (const [, group] of marketGrouped) {
-          const total = group.reduce((s, p) => s + p.final_score, 0);
+          const total = group.reduce((s: number, p: any) => s + p.final_score, 0);
           if (total > 0) {
             for (const p of group) {
               p.final_score = p.final_score / total;
@@ -408,7 +413,7 @@ Deno.serve(async (req) => {
 
         // Re-normalize after consistency adjustments
         for (const [, group] of marketGrouped) {
-          const total = group.reduce((s, p) => s + p.final_score, 0);
+          const total = group.reduce((s: number, p: any) => s + p.final_score, 0);
           if (total > 0) {
             for (const p of group) {
               p.final_score = p.final_score / total;
