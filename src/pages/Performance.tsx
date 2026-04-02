@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
 
 interface PredictionResult {
   id: string;
