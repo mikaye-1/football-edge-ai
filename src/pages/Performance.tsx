@@ -35,7 +35,20 @@ function usePerformanceData() {
 
 export default function Performance() {
   const navigate = useNavigate();
-  const { data: results = [], isLoading } = usePerformanceData();
+  const { data: results = [], isLoading, refetch } = usePerformanceData();
+  const [settling, setSettling] = useState(false);
+
+  const handleSettle = async () => {
+    setSettling(true);
+    try {
+      await supabase.functions.invoke("settle-predictions");
+      await refetch();
+    } catch (e) {
+      console.error("Settlement error:", e);
+    } finally {
+      setSettling(false);
+    }
+  };
 
   const stats = useMemo(() => {
     if (results.length === 0) return null;
