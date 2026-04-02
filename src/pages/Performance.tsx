@@ -111,6 +111,16 @@ export default function Performance() {
             </span>
           </div>
           <span className="text-xs text-muted-foreground ml-2">Performance Tracker</span>
+          <div className="ml-auto">
+            <button
+              onClick={handleSettle}
+              disabled={settling}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${settling ? "animate-spin" : ""}`} />
+              {settling ? "Settling..." : "Settle Predictions"}
+            </button>
+          </div>
         </div>
       </header>
 
