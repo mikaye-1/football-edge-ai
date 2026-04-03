@@ -431,30 +431,42 @@ Deno.serve(async (req) => {
           p.confidence = getConfidence(p.final_score);
         }
 
-        // Generate AI explanation for top predictions
-        predSummaries.sort((a, b) => b.finalScore - a.finalScore);
-        const aiExplanation = await generateAIExplanation(predSummaries, event.home_team, event.away_team);
-
-        // Sort and assign explanations
+        // Generate fallback explanations immediately
         predRows.sort((a, b) => b.final_score - a.final_score);
         for (let i = 0; i < predRows.length; i++) {
-          if (i < 3 && aiExplanation) {
-            predRows[i].explanation = aiExplanation;
-          } else {
-            const modelPct = (predRows[i].model_probability * 100).toFixed(0);
-            const oddsPct = (predRows[i].odds_implied_probability * 100).toFixed(0);
-            const diff = ((predRows[i].model_probability - predRows[i].odds_implied_probability) * 100).toFixed(0);
-            const isValue = predRows[i].model_probability > predRows[i].odds_implied_probability;
-            predRows[i].explanation = isValue
-              ? `Bookmakers imply ${oddsPct}% probability; the adjusted model predicts ${modelPct}% (+${diff}% edge). Potential value bet.`
-              : `Bookmakers imply ${oddsPct}% probability; the adjusted model predicts ${modelPct}%. Market-aligned prediction.`;
-          }
+          const modelPct = (predRows[i].model_probability * 100).toFixed(0);
+          const oddsPct = (predRows[i].odds_implied_probability * 100).toFixed(0);
+          const diff = ((predRows[i].model_probability - predRows[i].odds_implied_probability) * 100).toFixed(0);
+          const isValue = predRows[i].model_probability > predRows[i].odds_implied_probability;
+          predRows[i].explanation = isValue
+            ? `Bookmakers imply ${oddsPct}% probability; the adjusted model predicts ${modelPct}% (+${diff}% edge). Potential value bet.`
+            : `Bookmakers imply ${oddsPct}% probability; the adjusted model predicts ${modelPct}%. Market-aligned prediction.`;
         }
 
         if (predRows.length > 0) {
           const { error: predErr } = await supabase.from("predictions").insert(predRows);
           if (predErr) console.error("Predictions insert error:", predErr);
           else lp += predRows.length;
+        }
+
+        // Fire-and-forget AI explanation for first 3 matches only
+        if (lm <= 3) {
+          predSummaries.sort((a, b) => b.finalScore - a.finalScore);
+          generateAIExplanation(predSummaries, event.home_team, event.away_team)
+            .then(async (aiExplanation) => {
+              if (aiExplanation && predRows.length > 0) {
+                const topIds = predRows.slice(0, 3).map(p => p.match_id ? p.id : null).filter(Boolean);
+                // Update top 3 predictions with AI explanation
+                for (let i = 0; i < Math.min(3, predRows.length); i++) {
+                  await supabase.from("predictions")
+                    .update({ explanation: aiExplanation })
+                    .eq("match_id", matchId)
+                    .eq("market", predRows[i].market)
+                    .eq("outcome", predRows[i].outcome);
+                }
+              }
+            })
+            .catch(() => {});
         }
       }
 
