@@ -7,9 +7,27 @@ interface ValueBetAlertProps {
 }
 
 export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
-  const valueBets = predictions
+  // Filter value bets and deduplicate opposite sides of the same market
+  const rawValueBets = predictions
     .filter(p => p.model_probability > p.odds_implied_probability)
-    .sort((a, b) => (b.model_probability - b.odds_implied_probability) - (a.model_probability - a.odds_implied_probability))
+    .map(p => ({
+      ...p,
+      edge: p.model_probability - p.odds_implied_probability,
+    }));
+
+  // Group by base market (strip handicap line for grouping)
+  const baseMarket = (market: string) => market.replace(/\s*[+-]?\d+\.?\d*$/, '');
+  const bestByBaseMarket = new Map<string, typeof rawValueBets[0]>();
+  for (const vb of rawValueBets) {
+    const base = baseMarket(vb.market);
+    const existing = bestByBaseMarket.get(base);
+    if (!existing || vb.edge > existing.edge) {
+      bestByBaseMarket.set(base, vb);
+    }
+  }
+
+  const valueBets = [...bestByBaseMarket.values()]
+    .sort((a, b) => b.edge - a.edge)
     .slice(0, 3);
 
   if (valueBets.length === 0) return null;
@@ -27,7 +45,7 @@ export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
       </div>
       <div className="space-y-2">
         {valueBets.map((vb, i) => {
-          const edge = ((vb.model_probability - vb.odds_implied_probability) * 100).toFixed(1);
+          const edgePct = (vb.edge * 100).toFixed(1);
           return (
             <motion.div
               key={vb.id}
@@ -50,7 +68,7 @@ export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
                 <span className="text-muted-foreground">
                   Odds: <span className="font-mono-code text-foreground">{(vb.odds_implied_probability * 100).toFixed(0)}%</span>
                 </span>
-                <span className="font-mono-code font-bold text-accent">+{edge}%</span>
+                <span className="font-mono-code font-bold text-accent">+{edgePct}%</span>
               </div>
             </motion.div>
           );

@@ -27,7 +27,7 @@ function mapMarketName(apiKey: string, point?: number): string {
     case "totals":
     case "alternate_totals":
       return point ? `Over/Under ${point}` : "Over/Under 2.5";
-    case "spreads": return "Handicap";
+    case "spreads": return point ? `Handicap ${point > 0 ? '+' : ''}${point}` : "Handicap";
     case "btts": return "BTTS";
     case "double_chance": return "Double Chance";
     case "draw_no_bet": return "Draw No Bet";
