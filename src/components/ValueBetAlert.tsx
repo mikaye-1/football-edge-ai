@@ -6,8 +6,15 @@ interface ValueBetAlertProps {
   predictions: DbPrediction[];
 }
 
+/** Clean up redundant outcome labels */
+function cleanOutcome(market: string, outcome: string): string {
+  if (market === "Not to Win") {
+    return outcome.replace(" Not to Win", "");
+  }
+  return outcome;
+}
+
 export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
-  // Filter value bets and deduplicate opposite sides of the same market
   const rawValueBets = predictions
     .filter(p => p.model_probability > p.odds_implied_probability)
     .map(p => ({
@@ -15,7 +22,7 @@ export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
       edge: p.model_probability - p.odds_implied_probability,
     }));
 
-  // Group by base market (strip handicap line for grouping)
+  // Group by base market name (strip line numbers like +1.5, -0.5 for grouping)
   const baseMarket = (market: string) => market.replace(/\s*[+-]?\d+\.?\d*$/, '');
   const bestByBaseMarket = new Map<string, typeof rawValueBets[0]>();
   for (const vb of rawValueBets) {
@@ -46,6 +53,7 @@ export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
       <div className="space-y-2">
         {valueBets.map((vb, i) => {
           const edgePct = (vb.edge * 100).toFixed(1);
+          const displayOutcome = cleanOutcome(vb.market, vb.outcome);
           return (
             <motion.div
               key={vb.id}
@@ -59,7 +67,7 @@ export function ValueBetAlert({ predictions }: ValueBetAlertProps) {
                   {i + 1}
                 </span>
                 <span className="font-medium truncate">{vb.market}:</span>
-                <span className="text-foreground font-semibold truncate">{vb.outcome}</span>
+                <span className="text-foreground font-semibold truncate">{displayOutcome}</span>
               </div>
               <div className="flex items-center gap-3 text-xs pl-7 sm:pl-0">
                 <span className="text-muted-foreground">

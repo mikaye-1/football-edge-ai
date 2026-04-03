@@ -13,6 +13,16 @@ function computeConfidence(modelProb: number): ConfidenceLevel {
   return "very_low";
 }
 
+/** Clean up redundant outcome labels like "Home Not to Win" → "Home" when market already says "Not to Win" */
+function cleanOutcomeLabel(market: string, outcome: string): string {
+  if (market === "Not to Win") {
+    return outcome
+      .replace(" Not to Win", "")
+      .replace("No Draw", "No Draw");
+  }
+  return outcome;
+}
+
 interface PredictionCardProps {
   prediction: DbPrediction;
   index: number;
@@ -21,13 +31,27 @@ interface PredictionCardProps {
 
 export function PredictionCard({ prediction: p, index, rank }: PredictionCardProps) {
   const isValueBet = p.model_probability > p.odds_implied_probability;
-  const edge = ((p.model_probability - p.odds_implied_probability) * 100).toFixed(1);
+
+  // Single edge computation used everywhere
+  const edgeRaw = (p.model_probability - p.odds_implied_probability) * 100;
+  const edge = edgeRaw.toFixed(1);
+
   const confidence = computeConfidence(p.model_probability);
 
   const modelPct = p.model_probability * 100;
   const oddsPct = p.odds_implied_probability * 100;
   const gap = Math.abs(modelPct - oddsPct);
   const marketLabel = gap <= 3 ? "Market-aligned prediction" : "Model diverges from market";
+
+  // Build description client-side for consistency
+  const description = isValueBet
+    ? `Bookmakers imply ${oddsPct.toFixed(0)}% probability; the adjusted model predicts ${modelPct.toFixed(0)}% (+${edge}% edge). Potential value bet.`
+    : `Bookmakers imply ${oddsPct.toFixed(0)}% probability; the adjusted model predicts ${modelPct.toFixed(0)}%. ${marketLabel}.`;
+
+  const displayOutcome = cleanOutcomeLabel(p.market, p.outcome);
+
+  // Show confidence helper when confidence level seems high relative to low market probability
+  const showConfidenceHelper = modelPct < 30 && (confidence === "medium" || confidence === "high");
 
   return (
     <motion.div
@@ -47,7 +71,7 @@ export function PredictionCard({ prediction: p, index, rank }: PredictionCardPro
             </span>
           )}
           <span className="font-semibold text-xs sm:text-sm">{p.market}:</span>
-          <span className="text-primary font-semibold text-xs sm:text-sm truncate">{p.outcome}</span>
+          <span className="text-primary font-semibold text-xs sm:text-sm truncate">{displayOutcome}</span>
           {isValueBet && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-semibold bg-accent/15 text-accent border border-accent/30 shrink-0">
               <Zap className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
@@ -68,11 +92,15 @@ export function PredictionCard({ prediction: p, index, rank }: PredictionCardPro
         {marketLabel} · Edge: {isValueBet ? '+' : ''}{edge}%
       </p>
 
-      {p.explanation && (
-        <p className="text-[11px] sm:text-xs text-muted-foreground mb-3 leading-relaxed">{p.explanation}</p>
+      <p className="text-[11px] sm:text-xs text-muted-foreground mb-1 leading-relaxed">{description}</p>
+
+      {showConfidenceHelper && (
+        <p className="text-[10px] text-muted-foreground/70 italic mb-2">
+          Confidence reflects model consistency, not outcome probability.
+        </p>
       )}
 
-      <div className="grid grid-cols-4 gap-1.5 sm:gap-2 text-[10px] sm:text-xs">
+      <div className="grid grid-cols-4 gap-1.5 sm:gap-2 text-[10px] sm:text-xs mt-2">
         <div className="bg-secondary/50 rounded p-1.5 sm:p-2 text-center">
           <p className="text-muted-foreground">Odds</p>
           <p className="font-mono-code font-semibold">{oddsPct.toFixed(0)}%</p>
