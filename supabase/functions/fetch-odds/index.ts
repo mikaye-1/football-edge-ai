@@ -176,12 +176,16 @@ async function generateAIExplanation(
     .join("\n");
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
     const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: "google/gemini-2.5-flash-lite",
         messages: [
@@ -197,6 +201,7 @@ async function generateAIExplanation(
       }),
     });
 
+    clearTimeout(timeout);
     if (!resp.ok) return "";
     const data = await resp.json();
     return data.choices?.[0]?.message?.content?.trim() || "";
