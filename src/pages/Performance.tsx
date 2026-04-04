@@ -3,7 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2, RefreshCw, Filter, Trophy } from "lucide-react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 interface PredictionResult {
   id: string;
@@ -15,11 +23,24 @@ interface PredictionResult {
   predicted_probability: number;
   was_correct: boolean | null;
   settled_at: string | null;
+  edge_percentage: number;
+  confidence: string;
+}
+
+interface MatchInfo {
+  id: string;
+  home_team: string;
+  away_team: string;
+  league: string;
+  home_score: number | null;
+  away_score: number | null;
+  predicted_home_score: number | null;
+  predicted_away_score: number | null;
 }
 
 function usePerformanceData() {
   return useQuery({
-    queryKey: ["performance"],
+    queryKey: ["performance-results"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("prediction_results")
@@ -33,10 +54,29 @@ function usePerformanceData() {
   });
 }
 
+function useFinishedMatches() {
+  return useQuery({
+    queryKey: ["finished-matches"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("matches")
+        .select("id, home_team, away_team, league, home_score, away_score, predicted_home_score, predicted_away_score")
+        .eq("status", "finished")
+        .order("kickoff_time", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as MatchInfo[];
+    },
+    refetchInterval: 60000,
+  });
+}
+
 export default function Performance() {
   const navigate = useNavigate();
   const { data: results = [], isLoading, refetch } = usePerformanceData();
+  const { data: finishedMatches = [] } = useFinishedMatches();
   const [settling, setSettling] = useState(false);
+  const [marketFilter, setMarketFilter] = useState<string>("all");
+  const [confFilter, setConfFilter] = useState<string>("all");
 
   const handleSettle = async () => {
     setSettling(true);
@@ -50,12 +90,31 @@ export default function Performance() {
     }
   };
 
+  const matchLookup = useMemo(() => {
+    const map = new Map<string, MatchInfo>();
+    for (const m of finishedMatches) map.set(m.id, m);
+    return map;
+  }, [finishedMatches]);
+
+  const allMarkets = useMemo(() => [...new Set(results.map(r => r.market))].sort(), [results]);
+
+  const filtered = useMemo(() => {
+    let f = results;
+    if (marketFilter !== "all") f = f.filter(r => r.market === marketFilter);
+    if (confFilter !== "all") f = f.filter(r => r.confidence === confFilter);
+    return f;
+  }, [results, marketFilter, confFilter]);
+
   const stats = useMemo(() => {
     if (results.length === 0) return null;
 
     const total = results.length;
     const correct = results.filter(r => r.was_correct).length;
     const accuracy = total > 0 ? correct / total : 0;
+
+    // Average edge on winning bets
+    const winningEdges = results.filter(r => r.was_correct && r.edge_percentage > 0).map(r => r.edge_percentage);
+    const avgWinEdge = winningEdges.length > 0 ? winningEdges.reduce((s, e) => s + e, 0) / winningEdges.length : 0;
 
     // By market
     const byMarket = new Map<string, { total: number; correct: number }>();
@@ -66,40 +125,37 @@ export default function Performance() {
       byMarket.set(r.market, m);
     }
 
-    // By confidence bracket
-    const byConfidence = { high: { total: 0, correct: 0 }, medium: { total: 0, correct: 0 }, low: { total: 0, correct: 0 } };
-    for (const r of results) {
-      const prob = r.predicted_probability;
-      const bracket = prob >= 0.7 ? "high" : prob >= 0.6 ? "medium" : "low";
-      byConfidence[bracket].total++;
-      if (r.was_correct) byConfidence[bracket].correct++;
+    // Best market
+    let bestMarket = "";
+    let bestRate = 0;
+    for (const [market, d] of byMarket) {
+      if (d.total >= 3) {
+        const rate = d.correct / d.total;
+        if (rate > bestRate) { bestRate = rate; bestMarket = market; }
+      }
     }
 
-    // Calibration: group by probability buckets
-    const buckets = Array.from({ length: 10 }, (_, i) => ({
-      range: `${i * 10}-${(i + 1) * 10}%`,
-      predicted: 0,
-      actual: 0,
-      count: 0,
-    }));
+    // By confidence
+    const byConfidence = new Map<string, { total: number; correct: number }>();
     for (const r of results) {
-      const idx = Math.min(Math.floor(r.predicted_probability * 10), 9);
-      buckets[idx].count++;
-      buckets[idx].predicted += r.predicted_probability;
-      if (r.was_correct) buckets[idx].actual++;
+      const c = r.confidence || "low";
+      const d = byConfidence.get(c) || { total: 0, correct: 0 };
+      d.total++;
+      if (r.was_correct) d.correct++;
+      byConfidence.set(c, d);
     }
 
     // Recent form (last 20)
     const recent = results.slice(0, 20);
     const recentAcc = recent.length > 0 ? recent.filter(r => r.was_correct).length / recent.length : 0;
 
-    return { total, correct, accuracy, byMarket, byConfidence, buckets, recentAcc };
+    return { total, correct, accuracy, avgWinEdge, byMarket, bestMarket, bestRate, byConfidence, recentAcc };
   }, [results]);
 
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border sticky top-0 z-50 bg-background/80 backdrop-blur-xl">
-        <div className="container max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+        <div className="container max-w-5xl mx-auto px-3 sm:px-4 py-3 flex items-center gap-3">
           <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -124,7 +180,7 @@ export default function Performance() {
         </div>
       </header>
 
-      <main className="container max-w-5xl mx-auto px-4 py-6 space-y-6">
+      <main className="container max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
           <h1 className="text-xl font-bold font-display mb-1">Historical Performance</h1>
           <p className="text-sm text-muted-foreground">Track prediction accuracy over time across all markets.</p>
@@ -143,12 +199,13 @@ export default function Performance() {
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               {[
-                { icon: Target, label: "Overall Accuracy", value: `${(stats.accuracy * 100).toFixed(1)}%`, color: "text-primary" },
-                { icon: CheckCircle, label: "Correct", value: stats.correct, color: "text-confidence-high" },
-                { icon: XCircle, label: "Incorrect", value: stats.total - stats.correct, color: "text-destructive" },
-                { icon: TrendingUp, label: "Recent Form", value: `${(stats.recentAcc * 100).toFixed(0)}%`, color: "text-accent" },
+                { icon: Target, label: "Win Rate", value: `${(stats.accuracy * 100).toFixed(1)}%`, color: "text-primary" },
+                { icon: CheckCircle, label: "Correct", value: `${stats.correct}`, color: "text-confidence-high" },
+                { icon: XCircle, label: "Incorrect", value: `${stats.total - stats.correct}`, color: "text-destructive" },
+                { icon: TrendingUp, label: "Avg Edge (Wins)", value: `${stats.avgWinEdge.toFixed(1)}%`, color: "text-accent" },
+                { icon: Trophy, label: "Best Market", value: stats.bestMarket || "—", color: "text-primary", sub: stats.bestMarket ? `${(stats.bestRate * 100).toFixed(0)}%` : "" },
               ].map((s, i) => (
                 <motion.div
                   key={s.label}
@@ -161,31 +218,37 @@ export default function Performance() {
                     <s.icon className={`w-4 h-4 ${s.color}`} />
                     <span className="text-xs text-muted-foreground">{s.label}</span>
                   </div>
-                  <p className={`text-xl font-bold font-mono-code ${s.color}`}>{s.value}</p>
+                  <p className={`text-lg font-bold font-mono-code ${s.color} truncate`}>{s.value}</p>
+                  {"sub" in s && s.sub && <p className="text-xs text-muted-foreground">{s.sub} win rate</p>}
                 </motion.div>
               ))}
             </div>
 
-            {/* By Confidence */}
+            {/* Accuracy by Confidence */}
             <div>
               <h2 className="font-semibold text-sm mb-3">Accuracy by Confidence Level</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {(["high", "medium", "low"] as const).map(level => {
-                  const d = stats.byConfidence[level];
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {(["high", "medium", "low", "very_low"] as const).map(level => {
+                  const d = stats.byConfidence.get(level) || { total: 0, correct: 0 };
                   const acc = d.total > 0 ? (d.correct / d.total * 100).toFixed(1) : "—";
-                  const colorMap = { high: "text-confidence-high border-confidence-high/30", medium: "text-confidence-medium border-confidence-medium/30", low: "text-destructive border-destructive/30" };
+                  const colorMap: Record<string, string> = {
+                    high: "text-confidence-high border-confidence-high/30",
+                    medium: "text-confidence-medium border-confidence-medium/30",
+                    low: "text-destructive border-destructive/30",
+                    very_low: "text-muted-foreground border-border",
+                  };
                   return (
-                    <div key={level} className={`gradient-card rounded-lg border p-4 ${colorMap[level]}`}>
-                      <p className="text-xs text-muted-foreground capitalize mb-1">{level} Confidence</p>
-                      <p className="text-2xl font-bold font-mono-code">{acc}%</p>
-                      <p className="text-xs text-muted-foreground">{d.correct}/{d.total} correct</p>
+                    <div key={level} className={`gradient-card rounded-lg border p-3 ${colorMap[level]}`}>
+                      <p className="text-xs text-muted-foreground capitalize mb-1">{level.replace("_", " ")}</p>
+                      <p className="text-xl font-bold font-mono-code">{acc}%</p>
+                      <p className="text-xs text-muted-foreground">{d.correct}/{d.total}</p>
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* By Market */}
+            {/* Accuracy by Market */}
             <div>
               <h2 className="font-semibold text-sm mb-3">Accuracy by Market</h2>
               <div className="space-y-2">
@@ -200,10 +263,7 @@ export default function Performance() {
                           <span className="font-mono-code text-sm font-bold text-primary">{(acc * 100).toFixed(1)}%</span>
                         </div>
                         <div className="w-full bg-secondary rounded-full h-2">
-                          <div
-                            className="h-2 rounded-full gradient-primary transition-all"
-                            style={{ width: `${acc * 100}%` }}
-                          />
+                          <div className="h-2 rounded-full gradient-primary transition-all" style={{ width: `${acc * 100}%` }} />
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">{d.correct}/{d.total} predictions correct</p>
                       </div>
@@ -212,30 +272,95 @@ export default function Performance() {
               </div>
             </div>
 
-            {/* Recent Results */}
+            {/* Filterable History Table */}
             <div>
-              <h2 className="font-semibold text-sm mb-3">Recent Results</h2>
-              <div className="space-y-1">
-                {results.slice(0, 15).map((r, i) => (
-                  <motion.div
-                    key={r.id}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: i * 0.03 }}
-                    className="flex items-center justify-between gradient-card rounded border border-border px-3 py-2 text-sm"
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h2 className="font-semibold text-sm flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-muted-foreground" />
+                  Prediction History
+                  <span className="text-xs text-muted-foreground font-normal">({filtered.length} results)</span>
+                </h2>
+                <div className="flex gap-2">
+                  <select
+                    value={marketFilter}
+                    onChange={e => setMarketFilter(e.target.value)}
+                    className="text-xs rounded-md border border-border bg-background px-2 py-1 text-foreground"
                   >
-                    <div className="flex items-center gap-2">
-                      {r.was_correct ? (
-                        <CheckCircle className="w-4 h-4 text-confidence-high" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-destructive" />
-                      )}
-                      <span className="text-muted-foreground text-xs">{r.market}</span>
-                      <span className="font-medium">{r.predicted_outcome}</span>
-                    </div>
-                    <span className="font-mono-code text-xs">{(r.predicted_probability * 100).toFixed(0)}%</span>
-                  </motion.div>
-                ))}
+                    <option value="all">All Markets</option>
+                    {allMarkets.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <select
+                    value={confFilter}
+                    onChange={e => setConfFilter(e.target.value)}
+                    className="text-xs rounded-md border border-border bg-background px-2 py-1 text-foreground"
+                  >
+                    <option value="all">All Confidence</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                    <option value="very_low">Very Low</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="gradient-card rounded-lg border border-border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Match</TableHead>
+                      <TableHead className="text-xs">Score</TableHead>
+                      <TableHead className="text-xs">Market</TableHead>
+                      <TableHead className="text-xs">Prediction</TableHead>
+                      <TableHead className="text-xs text-center">Result</TableHead>
+                      <TableHead className="text-xs text-right">Edge</TableHead>
+                      <TableHead className="text-xs text-right">Conf.</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.slice(0, 50).map(r => {
+                      const match = matchLookup.get(r.match_id);
+                      return (
+                        <TableRow key={r.id}>
+                          <TableCell className="text-xs font-medium max-w-[140px] truncate">
+                            {match ? `${match.home_team} vs ${match.away_team}` : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs font-mono-code">
+                            {match && match.home_score != null ? (
+                              <span>
+                                {match.home_score}-{match.away_score}
+                                {match.predicted_home_score != null && (
+                                  <span className="text-muted-foreground ml-1">
+                                    (P: {match.predicted_home_score}-{match.predicted_away_score})
+                                  </span>
+                                )}
+                              </span>
+                            ) : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{r.market}</TableCell>
+                          <TableCell className="text-xs">{r.predicted_outcome}</TableCell>
+                          <TableCell className="text-center">
+                            {r.was_correct ? (
+                              <CheckCircle className="w-4 h-4 text-confidence-high inline-block" />
+                            ) : (
+                              <XCircle className="w-4 h-4 text-destructive inline-block" />
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-right font-mono-code">
+                            {r.edge_percentage > 0 ? `+${Number(r.edge_percentage).toFixed(1)}%` : "—"}
+                          </TableCell>
+                          <TableCell className="text-xs text-right capitalize">{(r.confidence || "").replace("_", " ")}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {filtered.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground text-sm py-8">
+                          No results match your filters
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
               </div>
             </div>
           </>

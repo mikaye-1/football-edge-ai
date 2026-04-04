@@ -12,7 +12,6 @@ function determine1X2Outcome(homeScore: number, awayScore: number): string {
 }
 
 function determineNotToWinOutcome(homeScore: number, awayScore: number): string[] {
-  // "Not to Win" outcomes that are correct
   const results: string[] = [];
   if (homeScore <= awayScore) results.push("Home Not to Win");
   if (awayScore <= homeScore) results.push("Away Not to Win");
@@ -39,7 +38,7 @@ function determineDoubleChance(homeScore: number, awayScore: number): string[] {
 function determineDrawNoBet(homeScore: number, awayScore: number): string | null {
   if (homeScore > awayScore) return "Home Win";
   if (awayScore > homeScore) return "Away Win";
-  return null; // push/void on draw
+  return null;
 }
 
 interface SettlementResult {
@@ -85,13 +84,11 @@ function settleMarket(
 
   if (market === "Draw No Bet") {
     const actual = determineDrawNoBet(homeScore, awayScore);
-    if (actual === null) return null; // void bet on draw
+    if (actual === null) return null;
     return { market, outcome: actual, isCorrect: predictedOutcome === actual };
   }
 
-  if (market === "Handicap") {
-    // Handicap settlement needs the spread value which we don't store separately
-    // Skip for now
+  if (market.startsWith("Handicap")) {
     return null;
   }
 
@@ -108,7 +105,7 @@ Deno.serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Get finished matches that have scores
+    // Get finished matches
     const { data: finishedMatches, error: matchErr } = await supabase
       .from("matches")
       .select("id, home_team, away_team, home_score, away_score")
@@ -125,7 +122,6 @@ Deno.serve(async (req) => {
 
     const matchIds = finishedMatches.map(m => m.id);
 
-    // Get predictions for these matches that haven't been settled yet
     const { data: existingResults } = await supabase
       .from("prediction_results")
       .select("prediction_id")
@@ -133,10 +129,10 @@ Deno.serve(async (req) => {
 
     const settledPredictionIds = new Set((existingResults ?? []).map(r => r.prediction_id));
 
-    // Get unsettled predictions
+    // Get unsettled predictions with full data
     const { data: predictions, error: predErr } = await supabase
       .from("predictions")
-      .select("id, match_id, market, outcome, final_score")
+      .select("id, match_id, market, outcome, final_score, model_probability, odds_implied_probability, confidence")
       .in("match_id", matchIds);
 
     if (predErr) throw predErr;
@@ -149,9 +145,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Build match lookup
     const matchLookup = new Map(finishedMatches.map(m => [m.id, m]));
-
     const resultRows: any[] = [];
 
     for (const pred of unsettled) {
@@ -160,6 +154,8 @@ Deno.serve(async (req) => {
 
       const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score);
       if (!result) continue;
+
+      const edge = ((pred.model_probability - pred.odds_implied_probability) * 100);
 
       resultRows.push({
         prediction_id: pred.id,
@@ -170,12 +166,13 @@ Deno.serve(async (req) => {
         actual_outcome: result.outcome,
         was_correct: result.isCorrect,
         settled_at: new Date().toISOString(),
+        edge_percentage: Math.round(edge * 10) / 10,
+        confidence: pred.confidence || "low",
       });
     }
 
     let inserted = 0;
     if (resultRows.length > 0) {
-      // Insert in batches of 500
       for (let i = 0; i < resultRows.length; i += 500) {
         const batch = resultRows.slice(i, i + 500);
         const { error: insertErr } = await supabase.from("prediction_results").insert(batch);
