@@ -65,11 +65,11 @@ export function MatchCard({ match, index }: { match: DbMatch; index: number }) {
       </div>
 
       {/* Predicted Scoreline */}
-      {(match as any).predicted_home_score != null && (match as any).predicted_away_score != null && (
+      {match.predicted_home_score != null && match.predicted_away_score != null && (
         <div className={`flex items-center gap-2 mb-3 text-xs ${hasScore ? "" : "mt-1"}`}>
           <span className="text-muted-foreground">Predicted:</span>
           <span className="font-mono-code font-semibold text-primary">
-            {(match as any).predicted_home_score} - {(match as any).predicted_away_score}
+            {match.predicted_home_score} - {match.predicted_away_score}
           </span>
           {hasScore && (
             <>
