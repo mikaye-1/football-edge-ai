@@ -136,7 +136,7 @@ export default function MatchDetail() {
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="gradient-card rounded-lg border border-border p-4 sm:p-6">
           <div className="flex items-center gap-2 mb-4">
             <span className="text-xs sm:text-sm text-muted-foreground">{leagueFlags[match.league] || "⚽"} {match.league}</span>
-            {match.status === "live" && <LiveIndicator minute={match.minute} />}
+            {match.status === "live" && <LiveClock kickoffTime={match.kickoff_time} minute={match.minute} />}
           </div>
           <div className="flex items-center justify-center gap-4 sm:gap-8">
             <div className="text-center flex-1">
@@ -145,8 +145,8 @@ export default function MatchDetail() {
             </div>
             {match.home_score !== null && match.away_score !== null ? (
               <div className="text-center shrink-0">
-                <p className="text-2xl sm:text-3xl font-bold font-mono-code">{match.home_score} - {match.away_score}</p>
-                {match.minute && <p className="text-xs text-destructive mt-1">{match.minute}'</p>}
+                <p className={`text-2xl sm:text-3xl font-bold font-mono-code ${match.status === "live" ? "text-green-500" : ""}`}>{match.home_score} - {match.away_score}</p>
+                {match.minute && match.status === "live" && <p className="text-xs text-destructive mt-1">{match.minute}'</p>}
               </div>
             ) : (
               <div className="text-center shrink-0">
@@ -163,6 +163,15 @@ export default function MatchDetail() {
               <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Away</p>
             </div>
           </div>
+          {/* Predicted Scoreline */}
+          {match.predicted_home_score != null && match.predicted_away_score != null && (
+            <div className="text-center mt-3 pt-3 border-t border-border">
+              <span className="text-xs text-muted-foreground">Predicted Score: </span>
+              <span className="font-mono-code font-semibold text-primary text-sm">
+                {match.home_team} {match.predicted_home_score} - {match.predicted_away_score} {match.away_team}
+              </span>
+            </div>
+          )}
         </motion.div>
 
         {/* Value Bet Alerts */}
