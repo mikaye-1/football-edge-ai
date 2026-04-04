@@ -14,8 +14,10 @@ export default function Index() {
   const { data: matches = [], isLoading: matchesLoading } = useMatches(league);
   const { data: predictions = [] } = usePredictions();
 
-  const live = matches.filter(m => m.status === "live");
-  const upcoming = matches.filter(m => m.status === "upcoming");
+  // Filter out finished matches from the main feed
+  const activeMatches = matches.filter(m => m.status !== "finished");
+  const live = activeMatches.filter(m => m.status === "live");
+  const upcoming = activeMatches.filter(m => m.status === "upcoming");
 
   return (
     <div className="min-h-screen bg-background">
@@ -51,7 +53,7 @@ export default function Index() {
             <Loader2 className="w-6 h-6 animate-spin text-primary" />
             <span className="ml-2 text-muted-foreground text-sm">Loading matches...</span>
           </div>
-        ) : matches.length === 0 ? (
+        ) : activeMatches.length === 0 ? (
           <div className="text-center py-20 text-muted-foreground">
             <p className="text-sm">No matches found. Click "Fetch Now" to load live odds data.</p>
           </div>

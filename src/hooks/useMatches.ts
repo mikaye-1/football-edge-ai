@@ -13,6 +13,8 @@ export interface DbMatch {
   away_score: number | null;
   minute: number | null;
   external_id: string | null;
+  predicted_home_score: number | null;
+  predicted_away_score: number | null;
 }
 
 export interface DbPrediction {

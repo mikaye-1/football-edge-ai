@@ -449,6 +449,21 @@ Deno.serve(async (req) => {
           else lp += predRows.length;
         }
 
+        // Generate predicted scoreline from 1X2 and O/U probabilities
+        const h1x2 = predRows.find(p => p.market === "1X2" && p.outcome === "Home Win");
+        const a1x2 = predRows.find(p => p.market === "1X2" && p.outcome === "Away Win");
+        const over25 = predRows.find(p => p.market === "Over/Under 2.5" && p.outcome === "Over");
+        if (h1x2 && a1x2) {
+          const homeStrength = h1x2.final_score / (h1x2.final_score + a1x2.final_score + 0.001);
+          const expectedGoals = over25 ? (over25.final_score > 0.5 ? 3.0 : 2.0) : 2.5;
+          const predHome = Math.round(expectedGoals * homeStrength);
+          const predAway = Math.round(expectedGoals * (1 - homeStrength));
+          await supabase.from("matches").update({
+            predicted_home_score: predHome,
+            predicted_away_score: predAway,
+          }).eq("id", matchId);
+        }
+
         // Fire-and-forget AI explanation for first 3 matches only
         if (lm <= 3) {
           predSummaries.sort((a, b) => b.finalScore - a.finalScore);

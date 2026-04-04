@@ -26,6 +26,8 @@ export type Database = {
           kickoff_time: string
           league: string
           minute: number | null
+          predicted_away_score: number | null
+          predicted_home_score: number | null
           sport_key: string
           status: string
           updated_at: string
@@ -41,6 +43,8 @@ export type Database = {
           kickoff_time: string
           league: string
           minute?: number | null
+          predicted_away_score?: number | null
+          predicted_home_score?: number | null
           sport_key: string
           status?: string
           updated_at?: string
@@ -56,6 +60,8 @@ export type Database = {
           kickoff_time?: string
           league?: string
           minute?: number | null
+          predicted_away_score?: number | null
+          predicted_home_score?: number | null
           sport_key?: string
           status?: string
           updated_at?: string
@@ -106,7 +112,9 @@ export type Database = {
       prediction_results: {
         Row: {
           actual_outcome: string | null
+          confidence: string | null
           created_at: string
+          edge_percentage: number | null
           id: string
           market: string
           match_id: string
@@ -118,7 +126,9 @@ export type Database = {
         }
         Insert: {
           actual_outcome?: string | null
+          confidence?: string | null
           created_at?: string
+          edge_percentage?: number | null
           id?: string
           market: string
           match_id: string
@@ -130,7 +140,9 @@ export type Database = {
         }
         Update: {
           actual_outcome?: string | null
+          confidence?: string | null
           created_at?: string
+          edge_percentage?: number | null
           id?: string
           market?: string
           match_id?: string
