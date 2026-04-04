@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { LiveIndicator } from "@/components/LiveIndicator";
+import { LiveIndicator, LiveClock } from "@/components/LiveIndicator";
 import { MarketFilter } from "@/components/MarketFilter";
 import { ValueBetAlert } from "@/components/ValueBetAlert";
 import { PredictionCard } from "@/components/PredictionCard";
