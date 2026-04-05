@@ -3,14 +3,19 @@ const leagueFlags: Record<string, string> = {
   "La Liga": "🇪🇸",
   "Serie A": "🇮🇹",
   "Ligue 1": "🇫🇷",
-  "Saudi Pro League": "🇸🇦",
   "MLS": "🇺🇸",
   "Süper Lig": "🇹🇷",
+  "Bundesliga": "🇩🇪",
+  "Eredivisie": "🇳🇱",
+  "Liga Portugal": "🇵🇹",
+  "Championship": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+  "Champions League": "🏆",
 };
 
 const allLeagues = [
   "Premier League", "La Liga", "Serie A", "Ligue 1",
-  "Saudi Pro League", "MLS", "Süper Lig"
+  "Bundesliga", "Eredivisie", "Liga Portugal", "Championship",
+  "Champions League", "MLS", "Süper Lig"
 ];
 
 interface LeagueFilterProps {

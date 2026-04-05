@@ -12,6 +12,11 @@ const SPORT_KEYS: Record<string, string> = {
   "soccer_france_ligue_one": "Ligue 1",
   "soccer_usa_mls": "MLS",
   "soccer_turkey_super_league": "Süper Lig",
+  "soccer_germany_bundesliga": "Bundesliga",
+  "soccer_netherlands_eredivisie": "Eredivisie",
+  "soccer_portugal_primeira_liga": "Liga Portugal",
+  "soccer_efl_champ": "Championship",
+  "soccer_uefa_champs_league": "Champions League",
 };
 
 // Tiered market sets — try extended first, fallback to basic on 422
