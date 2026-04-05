@@ -14,6 +14,11 @@ const leagueFlags: Record<string, string> = {
   "Saudi Pro League": "🇸🇦",
   "MLS": "🇺🇸",
   "Süper Lig": "🇹🇷",
+  "Bundesliga": "🇩🇪",
+  "Eredivisie": "🇳🇱",
+  "Liga Portugal": "🇵🇹",
+  "Championship": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+  "Champions League": "🏆",
 };
 
 export function MatchCard({ match, index }: { match: DbMatch; index: number }) {
