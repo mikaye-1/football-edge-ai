@@ -273,12 +273,17 @@ Deno.serve(async (req) => {
     let totalOdds = 0;
     let totalPredictions = 0;
 
-    const results = await Promise.allSettled(sportKeys.map(async (sportKey) => {
+    // Process leagues sequentially to avoid 429 rate limits
+    for (const sportKey of sportKeys) {
       const league = SPORT_KEYS[sportKey];
-      if (!league) return { matches: 0, odds: 0, predictions: 0 };
+      if (!league) continue;
 
       const events = await fetchEventsWithFallback(sportKey, API_KEY);
-      if (events.length === 0) return { matches: 0, odds: 0, predictions: 0 };
+      if (events.length === 0) {
+        // Small delay even on empty to avoid burst
+        await new Promise(r => setTimeout(r, 300));
+        continue;
+      }
 
       let lm = 0, lo = 0, lp = 0;
 
@@ -315,7 +320,6 @@ Deno.serve(async (req) => {
 
         for (const bk of event.bookmakers) {
           for (const mkt of bk.markets) {
-            // For totals and alternate_totals, only keep desired point values (1.5, 2.5, 3.5)
             if (mkt.key === "alternate_totals" || mkt.key === "totals") {
               const point = mkt.outcomes[0]?.point;
               if (point !== undefined && !DESIRED_TOTALS.has(point)) continue;
@@ -364,7 +368,6 @@ Deno.serve(async (req) => {
           else lo += oddsRows.length;
         }
 
-        // Normalized predictions
         const normalized = normalizeMarketProbabilities(predMap);
 
         const predRows: any[] = [];
@@ -396,7 +399,6 @@ Deno.serve(async (req) => {
           predSummaries.push({ market: val.market, outcome: val.outcome, finalScore: rawFinal, impliedProb: oddsProb, modelProb });
         }
 
-        // Normalize final scores within each market
         const marketGrouped = new Map<string, typeof predRows>();
         for (const p of predRows) {
           const arr = marketGrouped.get(p.market) || [];
@@ -413,7 +415,6 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Apply consistency checks
         applyConsistencyChecks(predRows.map(p => ({
           market: p.market,
           outcome: p.outcome,
@@ -421,7 +422,6 @@ Deno.serve(async (req) => {
           finalScore: p.final_score,
         })));
 
-        // Re-normalize after consistency adjustments
         for (const [, group] of marketGrouped) {
           const total = group.reduce((s: number, p: any) => s + p.final_score, 0);
           if (total > 0) {
@@ -431,12 +431,10 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Set confidence levels
         for (const p of predRows) {
           p.confidence = getConfidence(p.final_score);
         }
 
-        // Generate fallback explanations immediately
         predRows.sort((a, b) => b.final_score - a.final_score);
         for (let i = 0; i < predRows.length; i++) {
           const modelPct = (predRows[i].model_probability * 100).toFixed(0);
@@ -454,7 +452,6 @@ Deno.serve(async (req) => {
           else lp += predRows.length;
         }
 
-        // Generate predicted scoreline from 1X2 and O/U probabilities
         const h1x2 = predRows.find(p => p.market === "1X2" && p.outcome === "Home Win");
         const a1x2 = predRows.find(p => p.market === "1X2" && p.outcome === "Away Win");
         const over25 = predRows.find(p => p.market === "Over/Under 2.5" && p.outcome === "Over");
@@ -469,14 +466,11 @@ Deno.serve(async (req) => {
           }).eq("id", matchId);
         }
 
-        // Fire-and-forget AI explanation for first 3 matches only
         if (lm <= 3) {
           predSummaries.sort((a, b) => b.finalScore - a.finalScore);
           generateAIExplanation(predSummaries, event.home_team, event.away_team)
             .then(async (aiExplanation) => {
               if (aiExplanation && predRows.length > 0) {
-                const topIds = predRows.slice(0, 3).map(p => p.match_id ? p.id : null).filter(Boolean);
-                // Update top 3 predictions with AI explanation
                 for (let i = 0; i < Math.min(3, predRows.length); i++) {
                   await supabase.from("predictions")
                     .update({ explanation: aiExplanation })
@@ -490,8 +484,14 @@ Deno.serve(async (req) => {
         }
       }
 
-      return { matches: lm, odds: lo, predictions: lp };
-    }));
+      totalMatches += lm;
+      totalOdds += lo;
+      totalPredictions += lp;
+      console.log(`${league}: ${lm} matches, ${lo} odds, ${lp} predictions`);
+
+      // Delay between leagues to respect rate limits
+      await new Promise(r => setTimeout(r, 1200));
+    }
 
     for (const r of results) {
       if (r.status === "fulfilled") {
