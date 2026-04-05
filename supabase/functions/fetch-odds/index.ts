@@ -496,11 +496,83 @@ Deno.serve(async (req) => {
       }
     }
 
+    // --- Auto-finish matches that started >3 hours ago and are still live/upcoming ---
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const { data: staleMatches } = await supabase
+      .from("matches")
+      .select("id, external_id, sport_key, kickoff_time")
+      .in("status", ["live", "upcoming"])
+      .lt("kickoff_time", threeHoursAgo);
+
+    let finishedCount = 0;
+    if (staleMatches && staleMatches.length > 0) {
+      // Try to fetch scores from The Odds API for each sport
+      const staleBySport = new Map<string, typeof staleMatches>();
+      for (const m of staleMatches) {
+        const arr = staleBySport.get(m.sport_key) || [];
+        arr.push(m);
+        staleBySport.set(m.sport_key, arr);
+      }
+
+      for (const [sportKey, matches] of staleBySport) {
+        try {
+          const scoresResp = await fetch(
+            `https://api.the-odds-api.com/v4/sports/${sportKey}/scores/?apiKey=${API_KEY}&daysFrom=3&dateFormat=iso`
+          );
+          if (scoresResp.ok) {
+            const scores: any[] = await scoresResp.json();
+            const scoreMap = new Map<string, { home: number; away: number; completed: boolean }>();
+            for (const s of scores) {
+              if (s.completed && s.scores && s.scores.length >= 2) {
+                const home = s.scores.find((sc: any) => sc.name === s.home_team);
+                const away = s.scores.find((sc: any) => sc.name === s.away_team);
+                if (home && away) {
+                  scoreMap.set(s.id, {
+                    home: parseInt(home.score) || 0,
+                    away: parseInt(away.score) || 0,
+                    completed: true,
+                  });
+                }
+              }
+            }
+
+            for (const m of matches) {
+              const score = scoreMap.get(m.external_id || "");
+              if (score) {
+                await supabase.from("matches").update({
+                  status: "finished",
+                  home_score: score.home,
+                  away_score: score.away,
+                }).eq("id", m.id);
+                finishedCount++;
+              } else {
+                // No score data but >3h old — mark finished anyway
+                await supabase.from("matches").update({ status: "finished" }).eq("id", m.id);
+                finishedCount++;
+              }
+            }
+          } else {
+            // API error — just mark them finished without scores
+            for (const m of matches) {
+              await supabase.from("matches").update({ status: "finished" }).eq("id", m.id);
+              finishedCount++;
+            }
+          }
+        } catch {
+          for (const m of matches) {
+            await supabase.from("matches").update({ status: "finished" }).eq("id", m.id);
+            finishedCount++;
+          }
+        }
+      }
+    }
+
     return new Response(JSON.stringify({
       success: true,
       matches: totalMatches,
       odds: totalOdds,
       predictions: totalPredictions,
+      finished: finishedCount,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
