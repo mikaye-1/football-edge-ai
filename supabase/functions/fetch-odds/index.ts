@@ -493,13 +493,7 @@ Deno.serve(async (req) => {
       await new Promise(r => setTimeout(r, 1200));
     }
 
-    for (const r of results) {
-      if (r.status === "fulfilled") {
-        totalMatches += r.value.matches;
-        totalOdds += r.value.odds;
-        totalPredictions += r.value.predictions;
-      }
-    }
+
 
     // --- Auto-finish matches that started >3 hours ago and are still live/upcoming ---
     const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
