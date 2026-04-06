@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMatches, usePredictions } from "@/hooks/useMatches";
 import { LeagueFilter } from "@/components/LeagueFilter";
@@ -6,16 +6,24 @@ import { MatchCard } from "@/components/MatchCard";
 import { StatsBar } from "@/components/StatsBar";
 import { TopPredictions } from "@/components/TopPredictions";
 import { RefreshTimer } from "@/components/RefreshTimer";
+import { TeamSearchBar } from "@/components/TeamSearchBar";
 import { Activity, Shield, Loader2, BarChart3 } from "lucide-react";
 
 export default function Index() {
   const [league, setLeague] = useState<string>("all");
+  const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const { data: matches = [], isLoading: matchesLoading } = useMatches(league);
   const { data: predictions = [] } = usePredictions();
 
-  // Filter out finished matches from the main feed
-  const activeMatches = matches.filter(m => m.status !== "finished");
+  // Filter out finished matches, then apply search
+  const activeMatches = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return matches
+      .filter(m => m.status !== "finished")
+      .filter(m => !q || m.home_team.toLowerCase().includes(q) || m.away_team.toLowerCase().includes(q));
+  }, [matches, search]);
+
   const live = activeMatches.filter(m => m.status === "live");
   const upcoming = activeMatches.filter(m => m.status === "upcoming");
 
@@ -45,6 +53,8 @@ export default function Index() {
 
       <main className="container max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
         <StatsBar matches={matches} predictions={predictions} />
+
+        <TeamSearchBar value={search} onChange={setSearch} allMatches={matches} />
 
         <LeagueFilter selected={league} onSelect={setLeague} />
 
