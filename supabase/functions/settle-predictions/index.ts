@@ -168,7 +168,7 @@ Deno.serve(async (req) => {
       const match = matchLookup.get(pred.match_id);
       if (!match || match.home_score === null || match.away_score === null) continue;
 
-      const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score);
+      const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score, match.home_team, match.away_team);
       if (!result) continue;
 
       const edge = ((pred.model_probability - pred.odds_implied_probability) * 100);
