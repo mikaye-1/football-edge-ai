@@ -101,9 +101,10 @@ function settleMarket(
     if (adjustedHome > awayScore) actual = "Home";
     else if (adjustedHome < awayScore) actual = "Away";
     else actual = "Draw";
-    // predictedOutcome could be team name or Home/Away — normalize
-    const normalizedPrediction = predictedOutcome.includes("Home") || predictedOutcome === finishedMatches?.[0]?.home_team
-      ? "Home" : predictedOutcome.includes("Away") ? "Away" : predictedOutcome;
+    // Normalize: predicted outcome may be team name
+    let normalizedPrediction = predictedOutcome;
+    if (homeTeam && predictedOutcome.includes(homeTeam)) normalizedPrediction = "Home";
+    else if (awayTeam && predictedOutcome.includes(awayTeam)) normalizedPrediction = "Away";
     return { market, outcome: actual, isCorrect: normalizedPrediction === actual };
   }
 
