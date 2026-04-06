@@ -51,7 +51,9 @@ function settleMarket(
   market: string,
   predictedOutcome: string,
   homeScore: number,
-  awayScore: number
+  awayScore: number,
+  homeTeam?: string,
+  awayTeam?: string
 ): SettlementResult | null {
   const totalGoals = homeScore + awayScore;
 
@@ -89,7 +91,21 @@ function settleMarket(
   }
 
   if (market.startsWith("Handicap")) {
-    return null;
+    // Parse line from market name e.g. "Handicap -1.5"
+    const parts = market.split(" ");
+    const line = parseFloat(parts[parts.length - 1]);
+    if (isNaN(line)) return null;
+    // Handicap applies to home team: adjusted = homeScore + line
+    const adjustedHome = homeScore + line;
+    let actual: string;
+    if (adjustedHome > awayScore) actual = "Home";
+    else if (adjustedHome < awayScore) actual = "Away";
+    else actual = "Draw";
+    // Normalize: predicted outcome may be team name
+    let normalizedPrediction = predictedOutcome;
+    if (homeTeam && predictedOutcome.includes(homeTeam)) normalizedPrediction = "Home";
+    else if (awayTeam && predictedOutcome.includes(awayTeam)) normalizedPrediction = "Away";
+    return { market, outcome: actual, isCorrect: normalizedPrediction === actual };
   }
 
   return null;
@@ -152,7 +168,7 @@ Deno.serve(async (req) => {
       const match = matchLookup.get(pred.match_id);
       if (!match || match.home_score === null || match.away_score === null) continue;
 
-      const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score);
+      const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score, match.home_team, match.away_team);
       if (!result) continue;
 
       const edge = ((pred.model_probability - pred.odds_implied_probability) * 100);
