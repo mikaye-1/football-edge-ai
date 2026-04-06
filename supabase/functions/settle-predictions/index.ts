@@ -91,21 +91,25 @@ function settleMarket(
   }
 
   if (market.startsWith("Handicap")) {
-    // Parse line from market name e.g. "Handicap -1.5"
     const parts = market.split(" ");
     const line = parseFloat(parts[parts.length - 1]);
     if (isNaN(line)) return null;
-    // Handicap applies to home team: adjusted = homeScore + line
     const adjustedHome = homeScore + line;
     let actual: string;
     if (adjustedHome > awayScore) actual = "Home";
     else if (adjustedHome < awayScore) actual = "Away";
     else actual = "Draw";
-    // Normalize: predicted outcome may be team name
     let normalizedPrediction = predictedOutcome;
     if (homeTeam && predictedOutcome.includes(homeTeam)) normalizedPrediction = "Home";
     else if (awayTeam && predictedOutcome.includes(awayTeam)) normalizedPrediction = "Away";
     return { market, outcome: actual, isCorrect: normalizedPrediction === actual };
+  }
+
+  if (market.startsWith("Corners") || market.startsWith("Cards")) {
+    // These are Over/Under markets for corners/cards - we can't verify actual stats
+    // from score data alone, so we skip them unless we have the data
+    // For now, return null to skip settlement of these markets
+    return null;
   }
 
   return null;
