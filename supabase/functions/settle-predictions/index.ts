@@ -89,7 +89,20 @@ function settleMarket(
   }
 
   if (market.startsWith("Handicap")) {
-    return null;
+    // Parse line from market name e.g. "Handicap -1.5"
+    const parts = market.split(" ");
+    const line = parseFloat(parts[parts.length - 1]);
+    if (isNaN(line)) return null;
+    // Handicap applies to home team: adjusted = homeScore + line
+    const adjustedHome = homeScore + line;
+    let actual: string;
+    if (adjustedHome > awayScore) actual = "Home";
+    else if (adjustedHome < awayScore) actual = "Away";
+    else actual = "Draw";
+    // predictedOutcome could be team name or Home/Away — normalize
+    const normalizedPrediction = predictedOutcome.includes("Home") || predictedOutcome === finishedMatches?.[0]?.home_team
+      ? "Home" : predictedOutcome.includes("Away") ? "Away" : predictedOutcome;
+    return { market, outcome: actual, isCorrect: normalizedPrediction === actual };
   }
 
   return null;
