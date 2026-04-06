@@ -20,7 +20,7 @@ const SPORT_KEYS: Record<string, string> = {
 };
 
 // Tiered market sets — try extended first, fallback to basic on 422
-const MARKETS_EXTENDED = "h2h,h2h_lay,totals,alternate_totals,spreads,btts,double_chance,draw_no_bet";
+const MARKETS_EXTENDED = "h2h,h2h_lay,totals,alternate_totals,spreads,btts,double_chance,draw_no_bet,totals_corners,alternate_totals_corners,totals_cards,alternate_totals_cards";
 const MARKETS_BASIC = "h2h,totals,spreads";
 
 const DESIRED_TOTALS = new Set([1.5, 2.5, 3.5]);
