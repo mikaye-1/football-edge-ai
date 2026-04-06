@@ -51,7 +51,9 @@ function settleMarket(
   market: string,
   predictedOutcome: string,
   homeScore: number,
-  awayScore: number
+  awayScore: number,
+  homeTeam?: string,
+  awayTeam?: string
 ): SettlementResult | null {
   const totalGoals = homeScore + awayScore;
 
