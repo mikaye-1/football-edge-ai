@@ -115,11 +115,29 @@ function settleMarket(
     return { market, outcome: actual, isCorrect: normalizedPrediction === actual };
   }
 
-  if (market.startsWith("Corners") || market.startsWith("Cards")) {
-    // These are Over/Under markets for corners/cards - we can't verify actual stats
-    // from score data alone, so we skip them unless we have the data
-    // For now, return null to skip settlement of these markets
-    return null;
+  if (market.startsWith("Corners O/U") || market.startsWith("Cards O/U")) {
+    if (!stats) return null;
+    // Extract line: e.g. "Corners O/U 9.5" -> 9.5
+    const parts = market.split(" ");
+    const line = parseFloat(parts[parts.length - 1]);
+    if (isNaN(line)) return null;
+
+    let total: number | null = null;
+    if (market.startsWith("Corners")) {
+      if (stats.home_corners === null || stats.away_corners === null) return null;
+      total = stats.home_corners + stats.away_corners;
+    } else {
+      // Cards = yellow + red (red counts as 1 card per API-Football convention)
+      const homeY = stats.home_yellow_cards ?? 0;
+      const awayY = stats.away_yellow_cards ?? 0;
+      const homeR = stats.home_red_cards ?? 0;
+      const awayR = stats.away_red_cards ?? 0;
+      if (stats.home_yellow_cards === null && stats.away_yellow_cards === null) return null;
+      total = homeY + awayY + homeR + awayR;
+    }
+
+    const actual = total > line ? "Over" : "Under";
+    return { market, outcome: actual, isCorrect: predictedOutcome === actual };
   }
 
   return null;
