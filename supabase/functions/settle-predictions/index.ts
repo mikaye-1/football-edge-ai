@@ -194,13 +194,22 @@ Deno.serve(async (req) => {
     }
 
     const matchLookup = new Map(finishedMatches.map(m => [m.id, m]));
+
+    // Load match stats (corners/cards) for these matches
+    const { data: statsRows } = await supabase
+      .from("match_stats")
+      .select("match_id, home_corners, away_corners, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards")
+      .in("match_id", matchIds);
+    const statsLookup = new Map((statsRows ?? []).map((s: any) => [s.match_id, s]));
+
     const resultRows: any[] = [];
 
     for (const pred of unsettled) {
       const match = matchLookup.get(pred.match_id);
       if (!match || match.home_score === null || match.away_score === null) continue;
 
-      const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score, match.home_team, match.away_team);
+      const stats = statsLookup.get(pred.match_id) || null;
+      const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score, match.home_team, match.away_team, stats);
       if (!result) continue;
 
       const edge = ((pred.model_probability - pred.odds_implied_probability) * 100);
