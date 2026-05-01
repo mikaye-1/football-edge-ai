@@ -47,13 +47,23 @@ interface SettlementResult {
   isCorrect: boolean;
 }
 
+interface MatchStatsLite {
+  home_corners: number | null;
+  away_corners: number | null;
+  home_yellow_cards: number | null;
+  away_yellow_cards: number | null;
+  home_red_cards: number | null;
+  away_red_cards: number | null;
+}
+
 function settleMarket(
   market: string,
   predictedOutcome: string,
   homeScore: number,
   awayScore: number,
   homeTeam?: string,
-  awayTeam?: string
+  awayTeam?: string,
+  stats?: MatchStatsLite | null
 ): SettlementResult | null {
   const totalGoals = homeScore + awayScore;
 
