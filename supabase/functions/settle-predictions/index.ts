@@ -47,13 +47,23 @@ interface SettlementResult {
   isCorrect: boolean;
 }
 
+interface MatchStatsLite {
+  home_corners: number | null;
+  away_corners: number | null;
+  home_yellow_cards: number | null;
+  away_yellow_cards: number | null;
+  home_red_cards: number | null;
+  away_red_cards: number | null;
+}
+
 function settleMarket(
   market: string,
   predictedOutcome: string,
   homeScore: number,
   awayScore: number,
   homeTeam?: string,
-  awayTeam?: string
+  awayTeam?: string,
+  stats?: MatchStatsLite | null
 ): SettlementResult | null {
   const totalGoals = homeScore + awayScore;
 
@@ -105,11 +115,29 @@ function settleMarket(
     return { market, outcome: actual, isCorrect: normalizedPrediction === actual };
   }
 
-  if (market.startsWith("Corners") || market.startsWith("Cards")) {
-    // These are Over/Under markets for corners/cards - we can't verify actual stats
-    // from score data alone, so we skip them unless we have the data
-    // For now, return null to skip settlement of these markets
-    return null;
+  if (market.startsWith("Corners O/U") || market.startsWith("Cards O/U")) {
+    if (!stats) return null;
+    // Extract line: e.g. "Corners O/U 9.5" -> 9.5
+    const parts = market.split(" ");
+    const line = parseFloat(parts[parts.length - 1]);
+    if (isNaN(line)) return null;
+
+    let total: number | null = null;
+    if (market.startsWith("Corners")) {
+      if (stats.home_corners === null || stats.away_corners === null) return null;
+      total = stats.home_corners + stats.away_corners;
+    } else {
+      // Cards = yellow + red (red counts as 1 card per API-Football convention)
+      const homeY = stats.home_yellow_cards ?? 0;
+      const awayY = stats.away_yellow_cards ?? 0;
+      const homeR = stats.home_red_cards ?? 0;
+      const awayR = stats.away_red_cards ?? 0;
+      if (stats.home_yellow_cards === null && stats.away_yellow_cards === null) return null;
+      total = homeY + awayY + homeR + awayR;
+    }
+
+    const actual = total > line ? "Over" : "Under";
+    return { market, outcome: actual, isCorrect: predictedOutcome === actual };
   }
 
   return null;
@@ -166,13 +194,22 @@ Deno.serve(async (req) => {
     }
 
     const matchLookup = new Map(finishedMatches.map(m => [m.id, m]));
+
+    // Load match stats (corners/cards) for these matches
+    const { data: statsRows } = await supabase
+      .from("match_stats")
+      .select("match_id, home_corners, away_corners, home_yellow_cards, away_yellow_cards, home_red_cards, away_red_cards")
+      .in("match_id", matchIds);
+    const statsLookup = new Map((statsRows ?? []).map((s: any) => [s.match_id, s]));
+
     const resultRows: any[] = [];
 
     for (const pred of unsettled) {
       const match = matchLookup.get(pred.match_id);
       if (!match || match.home_score === null || match.away_score === null) continue;
 
-      const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score, match.home_team, match.away_team);
+      const stats = statsLookup.get(pred.match_id) || null;
+      const result = settleMarket(pred.market, pred.outcome, match.home_score, match.away_score, match.home_team, match.away_team, stats);
       if (!result) continue;
 
       const edge = ((pred.model_probability - pred.odds_implied_probability) * 100);
