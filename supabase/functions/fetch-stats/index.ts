@@ -72,10 +72,41 @@ function parseStatNumber(v: number | string | null): number | null {
   return isNaN(n) ? null : n;
 }
 
-function extractStat(stats: StatItem[], typeName: string): number | null {
-  const item = stats.find(s => s.type.toLowerCase() === typeName.toLowerCase());
-  return item ? parseStatNumber(item.value) : null;
+// Extract a stat by trying multiple known aliases (API-Football varies by league/season)
+function extractStat(stats: StatItem[], aliases: string[]): number | null {
+  for (const alias of aliases) {
+    const target = alias.toLowerCase().trim();
+    const item = stats.find(s => s.type && s.type.toLowerCase().trim() === target);
+    if (item) {
+      const n = parseStatNumber(item.value);
+      if (n !== null) return n;
+    }
+  }
+  // Fuzzy fallback: substring contains for resilience to naming drift
+  for (const alias of aliases) {
+    const target = alias.toLowerCase().trim();
+    const item = stats.find(s => s.type && s.type.toLowerCase().includes(target));
+    if (item) {
+      const n = parseStatNumber(item.value);
+      if (n !== null) return n;
+    }
+  }
+  return null;
 }
+
+// Stat name dictionaries — covers API-Football current + historical variants
+const STAT_ALIASES = {
+  corners: ["Corner Kicks", "Corners", "Corner kicks"],
+  yellow: ["Yellow Cards", "Yellow card", "Yellowcards"],
+  red: ["Red Cards", "Red card", "Redcards"],
+  possession: ["Ball Possession", "Possession", "possession %"],
+  shots: ["Total Shots", "Shots total", "Shots"],
+  shotsOnTarget: ["Shots on Goal", "Shots on Target", "Shots on goal"],
+};
+
+// Status codes from API-Football indicating the match is fully complete
+// FT = Full Time, AET = After Extra Time, PEN = Penalties, AWD = Awarded
+const FINISHED_STATUSES = new Set(["FT", "AET", "PEN", "AWD"]);
 
 async function fetchApiFootball(path: string, apiKey: string): Promise<any> {
   const resp = await fetch(`${API_FOOTBALL_BASE}${path}`, {
