@@ -14,6 +14,66 @@ export type Database = {
   }
   public: {
     Tables: {
+      match_stats: {
+        Row: {
+          away_corners: number | null
+          away_possession: number | null
+          away_red_cards: number | null
+          away_shots: number | null
+          away_shots_on_target: number | null
+          away_yellow_cards: number | null
+          created_at: string
+          home_corners: number | null
+          home_possession: number | null
+          home_red_cards: number | null
+          home_shots: number | null
+          home_shots_on_target: number | null
+          home_yellow_cards: number | null
+          id: string
+          match_id: string
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          away_corners?: number | null
+          away_possession?: number | null
+          away_red_cards?: number | null
+          away_shots?: number | null
+          away_shots_on_target?: number | null
+          away_yellow_cards?: number | null
+          created_at?: string
+          home_corners?: number | null
+          home_possession?: number | null
+          home_red_cards?: number | null
+          home_shots?: number | null
+          home_shots_on_target?: number | null
+          home_yellow_cards?: number | null
+          id?: string
+          match_id: string
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          away_corners?: number | null
+          away_possession?: number | null
+          away_red_cards?: number | null
+          away_shots?: number | null
+          away_shots_on_target?: number | null
+          away_yellow_cards?: number | null
+          created_at?: string
+          home_corners?: number | null
+          home_possession?: number | null
+          home_red_cards?: number | null
+          home_shots?: number | null
+          home_shots_on_target?: number | null
+          home_yellow_cards?: number | null
+          id?: string
+          match_id?: string
+          source?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       matches: {
         Row: {
           away_score: number | null
