@@ -72,10 +72,41 @@ function parseStatNumber(v: number | string | null): number | null {
   return isNaN(n) ? null : n;
 }
 
-function extractStat(stats: StatItem[], typeName: string): number | null {
-  const item = stats.find(s => s.type.toLowerCase() === typeName.toLowerCase());
-  return item ? parseStatNumber(item.value) : null;
+// Extract a stat by trying multiple known aliases (API-Football varies by league/season)
+function extractStat(stats: StatItem[], aliases: string[]): number | null {
+  for (const alias of aliases) {
+    const target = alias.toLowerCase().trim();
+    const item = stats.find(s => s.type && s.type.toLowerCase().trim() === target);
+    if (item) {
+      const n = parseStatNumber(item.value);
+      if (n !== null) return n;
+    }
+  }
+  // Fuzzy fallback: substring contains for resilience to naming drift
+  for (const alias of aliases) {
+    const target = alias.toLowerCase().trim();
+    const item = stats.find(s => s.type && s.type.toLowerCase().includes(target));
+    if (item) {
+      const n = parseStatNumber(item.value);
+      if (n !== null) return n;
+    }
+  }
+  return null;
 }
+
+// Stat name dictionaries — covers API-Football current + historical variants
+const STAT_ALIASES = {
+  corners: ["Corner Kicks", "Corners", "Corner kicks"],
+  yellow: ["Yellow Cards", "Yellow card", "Yellowcards"],
+  red: ["Red Cards", "Red card", "Redcards"],
+  possession: ["Ball Possession", "Possession", "possession %"],
+  shots: ["Total Shots", "Shots total", "Shots"],
+  shotsOnTarget: ["Shots on Goal", "Shots on Target", "Shots on goal"],
+};
+
+// Status codes from API-Football indicating the match is fully complete
+// FT = Full Time, AET = After Extra Time, PEN = Penalties, AWD = Awarded
+const FINISHED_STATUSES = new Set(["FT", "AET", "PEN", "AWD"]);
 
 async function fetchApiFootball(path: string, apiKey: string): Promise<any> {
   const resp = await fetch(`${API_FOOTBALL_BASE}${path}`, {
@@ -179,6 +210,13 @@ Deno.serve(async (req) => {
               continue;
             }
 
+            // Only proceed if the API-Football fixture is fully complete (incl. AET/PEN)
+            if (!FINISHED_STATUSES.has(fixture.fixture.status.short)) {
+              console.log(`Fixture ${fixture.fixture.id} not finished (status=${fixture.fixture.status.short}), skipping`);
+              skipped++;
+              continue;
+            }
+
             // Fetch statistics for this fixture
             const statsResp = await fetchApiFootball(
               `/fixtures/statistics?fixture=${fixture.fixture.id}`,
@@ -190,25 +228,48 @@ Deno.serve(async (req) => {
             const awayStats = teamStats.find(t => t.team.id === fixture.teams.away.id);
 
             if (!homeStats || !awayStats) {
-              console.log(`Stats unavailable for fixture ${fixture.fixture.id}`);
+              console.log(`Stats unavailable for fixture ${fixture.fixture.id} (league may not provide stats)`);
               skipped++;
+              continue;
+            }
+
+            const homeArr = homeStats.statistics || [];
+            const awayArr = awayStats.statistics || [];
+
+            const home_corners = extractStat(homeArr, STAT_ALIASES.corners);
+            const away_corners = extractStat(awayArr, STAT_ALIASES.corners);
+            const home_yellow = extractStat(homeArr, STAT_ALIASES.yellow);
+            const away_yellow = extractStat(awayArr, STAT_ALIASES.yellow);
+            // Red cards often missing from feed when zero — coerce to 0 when yellows are present
+            const home_red_raw = extractStat(homeArr, STAT_ALIASES.red);
+            const away_red_raw = extractStat(awayArr, STAT_ALIASES.red);
+            const home_red = home_red_raw ?? (home_yellow !== null ? 0 : null);
+            const away_red = away_red_raw ?? (away_yellow !== null ? 0 : null);
+
+            // Skip insert entirely if BOTH corners and cards are unavailable — nothing to settle
+            const hasCorners = home_corners !== null && away_corners !== null;
+            const hasCards = home_yellow !== null && away_yellow !== null;
+            if (!hasCorners && !hasCards) {
+              console.log(`No useful stats for fixture ${fixture.fixture.id}, skipping`);
+              skipped++;
+              await new Promise(r => setTimeout(r, 700));
               continue;
             }
 
             const row = {
               match_id: myMatch.id,
-              home_corners: extractStat(homeStats.statistics, "Corner Kicks"),
-              away_corners: extractStat(awayStats.statistics, "Corner Kicks"),
-              home_yellow_cards: extractStat(homeStats.statistics, "Yellow Cards"),
-              away_yellow_cards: extractStat(awayStats.statistics, "Yellow Cards"),
-              home_red_cards: extractStat(homeStats.statistics, "Red Cards"),
-              away_red_cards: extractStat(awayStats.statistics, "Red Cards"),
-              home_possession: extractStat(homeStats.statistics, "Ball Possession"),
-              away_possession: extractStat(awayStats.statistics, "Ball Possession"),
-              home_shots: extractStat(homeStats.statistics, "Total Shots"),
-              away_shots: extractStat(awayStats.statistics, "Total Shots"),
-              home_shots_on_target: extractStat(homeStats.statistics, "Shots on Goal"),
-              away_shots_on_target: extractStat(awayStats.statistics, "Shots on Goal"),
+              home_corners,
+              away_corners,
+              home_yellow_cards: home_yellow,
+              away_yellow_cards: away_yellow,
+              home_red_cards: home_red,
+              away_red_cards: away_red,
+              home_possession: extractStat(homeArr, STAT_ALIASES.possession),
+              away_possession: extractStat(awayArr, STAT_ALIASES.possession),
+              home_shots: extractStat(homeArr, STAT_ALIASES.shots),
+              away_shots: extractStat(awayArr, STAT_ALIASES.shots),
+              home_shots_on_target: extractStat(homeArr, STAT_ALIASES.shotsOnTarget),
+              away_shots_on_target: extractStat(awayArr, STAT_ALIASES.shotsOnTarget),
               source: "api-football",
             };
 
