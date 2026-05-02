@@ -117,27 +117,42 @@ function settleMarket(
 
   if (market.startsWith("Corners O/U") || market.startsWith("Cards O/U")) {
     if (!stats) return null;
-    // Extract line: e.g. "Corners O/U 9.5" -> 9.5
-    const parts = market.split(" ");
-    const line = parseFloat(parts[parts.length - 1]);
+
+    // Robust line extraction: find the last numeric token (handles "Corners O/U 9.5",
+    // "Corners Over/Under 10.5", or oddities like "Corners O/U Over 9.5")
+    const numMatch = market.match(/(\d+(?:\.\d+)?)(?!.*\d)/);
+    if (!numMatch) return null;
+    const line = parseFloat(numMatch[1]);
     if (isNaN(line)) return null;
+
+    // Normalize predicted outcome to "Over" / "Under" (case-insensitive, tolerant of extras)
+    const predLower = predictedOutcome.toLowerCase();
+    let normalizedPred: "Over" | "Under" | null = null;
+    if (predLower.includes("over")) normalizedPred = "Over";
+    else if (predLower.includes("under")) normalizedPred = "Under";
+    if (!normalizedPred) return null;
 
     let total: number | null = null;
     if (market.startsWith("Corners")) {
+      // Both sides required — corner counts can't be inferred
       if (stats.home_corners === null || stats.away_corners === null) return null;
       total = stats.home_corners + stats.away_corners;
     } else {
-      // Cards = yellow + red (red counts as 1 card per API-Football convention)
-      const homeY = stats.home_yellow_cards ?? 0;
-      const awayY = stats.away_yellow_cards ?? 0;
+      // Cards = yellows + reds. Require at least one side of yellows to consider data present.
+      // Treat missing red cards as 0 (API-Football often omits the row when there are none).
+      if (stats.home_yellow_cards === null || stats.away_yellow_cards === null) return null;
+      const homeY = stats.home_yellow_cards;
+      const awayY = stats.away_yellow_cards;
       const homeR = stats.home_red_cards ?? 0;
       const awayR = stats.away_red_cards ?? 0;
-      if (stats.home_yellow_cards === null && stats.away_yellow_cards === null) return null;
       total = homeY + awayY + homeR + awayR;
     }
 
+    if (total === null || isNaN(total)) return null;
+
+    // Push (exact line) is rare for x.5 lines; treat equality as Under by convention
     const actual = total > line ? "Over" : "Under";
-    return { market, outcome: actual, isCorrect: predictedOutcome === actual };
+    return { market, outcome: actual, isCorrect: normalizedPred === actual };
   }
 
   return null;
