@@ -74,10 +74,48 @@ function useFinishedMatches() {
   });
 }
 
+function useModelWeights() {
+  return useQuery({
+    queryKey: ["model-weights"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("model_weights")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    refetchInterval: 60000,
+  });
+}
+
+function usePredictionFeatures(predictionIds: string[]) {
+  return useQuery({
+    queryKey: ["prediction-features", predictionIds.length],
+    enabled: predictionIds.length > 0,
+    queryFn: async () => {
+      const all: { id: string; final_score: number }[] = [];
+      for (let i = 0; i < predictionIds.length; i += 500) {
+        const slice = predictionIds.slice(i, i + 500);
+        const { data, error } = await supabase
+          .from("predictions")
+          .select("id, final_score")
+          .in("id", slice);
+        if (error) throw error;
+        all.push(...(data ?? []) as any);
+      }
+      return all;
+    },
+  });
+}
+
 export default function Performance() {
   const navigate = useNavigate();
   const { data: results = [], isLoading, refetch } = usePerformanceData();
   const { data: finishedMatches = [] } = useFinishedMatches();
+  const { data: weights } = useModelWeights();
   const [settling, setSettling] = useState(false);
   const [marketFilter, setMarketFilter] = useState<string>("all");
   const [confFilter, setConfFilter] = useState<string>("all");
