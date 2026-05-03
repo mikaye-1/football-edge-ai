@@ -97,8 +97,8 @@ function usePredictionFeatures(predictionIds: string[]) {
     enabled: predictionIds.length > 0,
     queryFn: async () => {
       const all: { id: string; odds_implied_probability: number }[] = [];
-      for (let i = 0; i < predictionIds.length; i += 500) {
-        const slice = predictionIds.slice(i, i + 500);
+      for (let i = 0; i < predictionIds.length; i += 80) {
+        const slice = predictionIds.slice(i, i + 80);
         const { data, error } = await supabase
           .from("predictions")
           .select("id, odds_implied_probability")
