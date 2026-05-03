@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2, RefreshCw, Filter, Trophy } from "lucide-react";
+import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2, RefreshCw, Filter, Trophy, PoundSterling, Activity, Sliders } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -12,6 +12,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  LineChart, Line,
+} from "recharts";
 
 interface PredictionResult {
   id: string;
