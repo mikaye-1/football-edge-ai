@@ -128,6 +128,39 @@ export type Database = {
         }
         Relationships: []
       }
+      model_weights: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string | null
+          sample_size: number
+          w_consistency: number
+          w_form: number
+          w_model: number
+          w_odds: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          sample_size?: number
+          w_consistency: number
+          w_form: number
+          w_model: number
+          w_odds: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          sample_size?: number
+          w_consistency?: number
+          w_form?: number
+          w_model?: number
+          w_odds?: number
+        }
+        Relationships: []
+      }
       odds: {
         Row: {
           bookmaker: string
