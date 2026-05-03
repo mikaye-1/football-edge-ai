@@ -293,7 +293,16 @@ export default function Performance() {
             </span>
           </div>
           <span className="text-xs text-muted-foreground ml-2">Performance Tracker</span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={handleAdapt}
+              disabled={adapting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+              title="Recalculate model weights from resolved predictions"
+            >
+              <Sliders className={`w-3.5 h-3.5 ${adapting ? "animate-pulse" : ""}`} />
+              {adapting ? "Adapting..." : "Adapt Weights"}
+            </button>
             <button
               onClick={handleSettle}
               disabled={settling}
