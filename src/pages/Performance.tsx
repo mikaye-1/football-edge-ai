@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2, RefreshCw, Filter, Trophy } from "lucide-react";
+import { ArrowLeft, Shield, BarChart3, Target, TrendingUp, CheckCircle, XCircle, Loader2, RefreshCw, Filter, Trophy, PoundSterling, Activity, Sliders } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -12,6 +12,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
+  LineChart, Line,
+} from "recharts";
 
 interface PredictionResult {
   id: string;
@@ -70,13 +74,62 @@ function useFinishedMatches() {
   });
 }
 
+function useModelWeights() {
+  return useQuery({
+    queryKey: ["model-weights"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("model_weights")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    refetchInterval: 60000,
+  });
+}
+
+function usePredictionFeatures(predictionIds: string[]) {
+  return useQuery({
+    queryKey: ["prediction-features", predictionIds.length],
+    enabled: predictionIds.length > 0,
+    queryFn: async () => {
+      const all: { id: string; odds_implied_probability: number }[] = [];
+      for (let i = 0; i < predictionIds.length; i += 80) {
+        const slice = predictionIds.slice(i, i + 80);
+        const { data, error } = await supabase
+          .from("predictions")
+          .select("id, odds_implied_probability")
+          .in("id", slice);
+        if (error) throw error;
+        all.push(...(data ?? []) as any);
+      }
+      return all;
+    },
+  });
+}
+
 export default function Performance() {
   const navigate = useNavigate();
   const { data: results = [], isLoading, refetch } = usePerformanceData();
   const { data: finishedMatches = [] } = useFinishedMatches();
+  const { data: weights } = useModelWeights();
+  const predictionIds = useMemo(() => results.map(r => r.prediction_id), [results]);
+  const { data: features = [] } = usePredictionFeatures(predictionIds);
   const [settling, setSettling] = useState(false);
+  const [adapting, setAdapting] = useState(false);
   const [marketFilter, setMarketFilter] = useState<string>("all");
   const [confFilter, setConfFilter] = useState<string>("all");
+
+  const handleAdapt = async () => {
+    setAdapting(true);
+    try {
+      await supabase.functions.invoke("adapt-weights");
+    } catch (e) { console.error("Adapt error:", e); }
+    finally { setAdapting(false); }
+  };
 
   const handleSettle = async () => {
     setSettling(true);
@@ -149,8 +202,81 @@ export default function Performance() {
     const recent = results.slice(0, 20);
     const recentAcc = recent.length > 0 ? recent.filter(r => r.was_correct).length / recent.length : 0;
 
-    return { total, correct, accuracy, avgWinEdge, byMarket, bestMarket, bestRate, byConfidence, recentAcc };
-  }, [results]);
+    // ROI sim — £10 stake on each prediction at break-even (no real bookmaker price stored).
+    // We approximate the implied bookmaker odds from the prediction's odds_implied_probability
+    // when available (fallback: use stored predicted_probability).
+    const featMap = new Map(features.map(f => [f.id, f.odds_implied_probability]));
+    const STAKE = 10;
+    let staked = 0;
+    let returned = 0;
+    for (const r of results) {
+      const implied = Number(featMap.get(r.prediction_id) ?? r.predicted_probability);
+      if (!implied || implied <= 0) continue;
+      const decimalOdds = 1 / implied;
+      staked += STAKE;
+      if (r.was_correct) returned += STAKE * decimalOdds;
+    }
+    const roi = staked > 0 ? ((returned - staked) / staked) * 100 : 0;
+
+    // Calibration — bucket predicted probability into 10% bins, compare to actual hit rate
+    const bins: { bin: string; predicted: number; actual: number; n: number }[] = [];
+    for (let b = 0; b < 10; b++) {
+      const lo = b / 10;
+      const hi = (b + 1) / 10;
+      const inBin = results.filter(r => {
+        const p = Number(r.predicted_probability);
+        return p >= lo && p < hi;
+      });
+      if (inBin.length === 0) continue;
+      const predicted = inBin.reduce((s, r) => s + Number(r.predicted_probability), 0) / inBin.length;
+      const actual = inBin.filter(r => r.was_correct).length / inBin.length;
+      bins.push({ bin: `${(lo * 100).toFixed(0)}-${(hi * 100).toFixed(0)}%`, predicted, actual, n: inBin.length });
+    }
+    // Brier-like calibration score (lower=better) → convert to 0-100 quality
+    const brier = results.reduce((s, r) => {
+      const p = Number(r.predicted_probability);
+      const o = r.was_correct ? 1 : 0;
+      return s + (p - o) ** 2;
+    }, 0) / results.length;
+    const calibrationScore = Math.max(0, (1 - brier * 4)) * 100; // scale to 0-100
+
+    // By league
+    const byLeague = new Map<string, { total: number; correct: number }>();
+    for (const r of results) {
+      const m = matchLookup.get(r.match_id);
+      const league = m?.league ?? "Unknown";
+      const d = byLeague.get(league) || { total: 0, correct: 0 };
+      d.total++;
+      if (r.was_correct) d.correct++;
+      byLeague.set(league, d);
+    }
+    const leagueChart = Array.from(byLeague.entries())
+      .filter(([, d]) => d.total >= 3)
+      .map(([league, d]) => ({ league, accuracy: Number(((d.correct / d.total) * 100).toFixed(1)), n: d.total }))
+      .sort((a, b) => b.accuracy - a.accuracy);
+
+    // 30-day trend (group by settled_at day)
+    const dayMap = new Map<string, { total: number; correct: number }>();
+    const cutoff = Date.now() - 30 * 86400_000;
+    for (const r of results) {
+      if (!r.settled_at) continue;
+      const t = new Date(r.settled_at).getTime();
+      if (t < cutoff) continue;
+      const day = new Date(r.settled_at).toISOString().slice(0, 10);
+      const d = dayMap.get(day) || { total: 0, correct: 0 };
+      d.total++;
+      if (r.was_correct) d.correct++;
+      dayMap.set(day, d);
+    }
+    const trendChart = Array.from(dayMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, d]) => ({ day: day.slice(5), accuracy: Number(((d.correct / d.total) * 100).toFixed(1)) }));
+
+    return {
+      total, correct, accuracy, avgWinEdge, byMarket, bestMarket, bestRate, byConfidence, recentAcc,
+      roi, staked, returned, calibrationScore, calibrationBins: bins, leagueChart, trendChart,
+    };
+  }, [results, features, matchLookup]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -167,7 +293,16 @@ export default function Performance() {
             </span>
           </div>
           <span className="text-xs text-muted-foreground ml-2">Performance Tracker</span>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={handleAdapt}
+              disabled={adapting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+              title="Recalculate model weights from resolved predictions"
+            >
+              <Sliders className={`w-3.5 h-3.5 ${adapting ? "animate-pulse" : ""}`} />
+              {adapting ? "Adapting..." : "Adapt Weights"}
+            </button>
             <button
               onClick={handleSettle}
               disabled={settling}
@@ -199,19 +334,21 @@ export default function Performance() {
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
               {[
                 { icon: Target, label: "Win Rate", value: `${(stats.accuracy * 100).toFixed(1)}%`, color: "text-primary" },
+                { icon: PoundSterling, label: "ROI (£10/bet)", value: `${stats.roi >= 0 ? "+" : ""}${stats.roi.toFixed(1)}%`, color: stats.roi >= 0 ? "text-confidence-high" : "text-destructive", sub: `£${stats.staked.toFixed(0)} staked` },
+                { icon: Activity, label: "Calibration", value: `${stats.calibrationScore.toFixed(0)}/100`, color: "text-accent" },
                 { icon: CheckCircle, label: "Correct", value: `${stats.correct}`, color: "text-confidence-high" },
                 { icon: XCircle, label: "Incorrect", value: `${stats.total - stats.correct}`, color: "text-destructive" },
                 { icon: TrendingUp, label: "Avg Edge (Wins)", value: `${stats.avgWinEdge.toFixed(1)}%`, color: "text-accent" },
-                { icon: Trophy, label: "Best Market", value: stats.bestMarket || "—", color: "text-primary", sub: stats.bestMarket ? `${(stats.bestRate * 100).toFixed(0)}%` : "" },
+                { icon: Trophy, label: "Best Market", value: stats.bestMarket || "—", color: "text-primary", sub: stats.bestMarket ? `${(stats.bestRate * 100).toFixed(0)}% rate` : "" },
               ].map((s, i) => (
                 <motion.div
                   key={s.label}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.08 }}
+                  transition={{ delay: i * 0.06 }}
                   className="gradient-card rounded-lg border border-border p-3"
                 >
                   <div className="flex items-center gap-2 mb-1">
@@ -219,10 +356,81 @@ export default function Performance() {
                     <span className="text-xs text-muted-foreground">{s.label}</span>
                   </div>
                   <p className={`text-lg font-bold font-mono-code ${s.color} truncate`}>{s.value}</p>
-                  {"sub" in s && s.sub && <p className="text-xs text-muted-foreground">{s.sub} win rate</p>}
+                  {"sub" in s && s.sub && <p className="text-xs text-muted-foreground">{s.sub}</p>}
                 </motion.div>
               ))}
             </div>
+
+            {/* Current Model Weights */}
+            {weights && (
+              <div>
+                <h2 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-accent" />
+                  Current Model Weights
+                  <span className="text-xs text-muted-foreground font-normal">
+                    (sample size: {weights.sample_size})
+                  </span>
+                </h2>
+                <div className="gradient-card rounded-lg border border-border p-4 space-y-3">
+                  {[
+                    { key: "Odds", value: Number(weights.w_odds), color: "bg-primary" },
+                    { key: "Model", value: Number(weights.w_model), color: "bg-accent" },
+                    { key: "Form", value: Number(weights.w_form), color: "bg-confidence-high" },
+                    { key: "Consistency", value: Number(weights.w_consistency), color: "bg-confidence-medium" },
+                  ].map(w => (
+                    <div key={w.key}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-muted-foreground">{w.key}</span>
+                        <span className="font-mono-code font-bold">{(w.value * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="w-full bg-secondary rounded-full h-2">
+                        <div className={`h-2 rounded-full ${w.color} transition-all`} style={{ width: `${w.value * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                  {weights.notes && <p className="text-xs text-muted-foreground pt-1 border-t border-border">{weights.notes}</p>}
+                </div>
+              </div>
+            )}
+
+            {/* Accuracy by League */}
+            {stats.leagueChart.length > 0 && (
+              <div>
+                <h2 className="font-semibold text-sm mb-3">Accuracy by League</h2>
+                <div className="gradient-card rounded-lg border border-border p-3">
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={stats.leagueChart}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="league" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} interval={0} angle={-15} textAnchor="end" height={60} />
+                      <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} unit="%" />
+                      <Tooltip
+                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                        formatter={(v: number, _n, p: any) => [`${v}% (${p.payload.n} preds)`, "Accuracy"]}
+                      />
+                      <Bar dataKey="accuracy" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Accuracy Trend (30 days) */}
+            {stats.trendChart.length > 1 && (
+              <div>
+                <h2 className="font-semibold text-sm mb-3">Accuracy Trend — Last 30 Days</h2>
+                <div className="gradient-card rounded-lg border border-border p-3">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={stats.trendChart}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="day" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
+                      <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} unit="%" domain={[0, 100]} />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                      <Line type="monotone" dataKey="accuracy" stroke="hsl(var(--accent))" strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
 
             {/* Accuracy by Confidence */}
             <div>
