@@ -402,7 +402,7 @@ Deno.serve(async (req) => {
                               val.count >= 2 ? 0.5 + Math.random() * 0.3 :
                               0.3 + Math.random() * 0.3;
 
-          const rawFinal = 0.40 * oddsProb + 0.30 * modelProb + 0.20 * formScore + 0.10 * consistency;
+          const rawFinal = WEIGHTS.odds * oddsProb + WEIGHTS.model * modelProb + WEIGHTS.form * formScore + WEIGHTS.consistency * consistency;
 
           predRows.push({
             match_id: matchId,
