@@ -96,12 +96,12 @@ function usePredictionFeatures(predictionIds: string[]) {
     queryKey: ["prediction-features", predictionIds.length],
     enabled: predictionIds.length > 0,
     queryFn: async () => {
-      const all: { id: string; final_score: number }[] = [];
+      const all: { id: string; odds_implied_probability: number }[] = [];
       for (let i = 0; i < predictionIds.length; i += 500) {
         const slice = predictionIds.slice(i, i + 500);
         const { data, error } = await supabase
           .from("predictions")
-          .select("id, final_score")
+          .select("id, odds_implied_probability")
           .in("id", slice);
         if (error) throw error;
         all.push(...(data ?? []) as any);
