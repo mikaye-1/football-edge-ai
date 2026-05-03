@@ -116,9 +116,20 @@ export default function Performance() {
   const { data: results = [], isLoading, refetch } = usePerformanceData();
   const { data: finishedMatches = [] } = useFinishedMatches();
   const { data: weights } = useModelWeights();
+  const predictionIds = useMemo(() => results.map(r => r.prediction_id), [results]);
+  const { data: features = [] } = usePredictionFeatures(predictionIds);
   const [settling, setSettling] = useState(false);
+  const [adapting, setAdapting] = useState(false);
   const [marketFilter, setMarketFilter] = useState<string>("all");
   const [confFilter, setConfFilter] = useState<string>("all");
+
+  const handleAdapt = async () => {
+    setAdapting(true);
+    try {
+      await supabase.functions.invoke("adapt-weights");
+    } catch (e) { console.error("Adapt error:", e); }
+    finally { setAdapting(false); }
+  };
 
   const handleSettle = async () => {
     setSettling(true);
