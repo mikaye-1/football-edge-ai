@@ -202,8 +202,81 @@ export default function Performance() {
     const recent = results.slice(0, 20);
     const recentAcc = recent.length > 0 ? recent.filter(r => r.was_correct).length / recent.length : 0;
 
-    return { total, correct, accuracy, avgWinEdge, byMarket, bestMarket, bestRate, byConfidence, recentAcc };
-  }, [results]);
+    // ROI sim — £10 stake on each prediction at break-even (no real bookmaker price stored).
+    // We approximate the implied bookmaker odds from the prediction's odds_implied_probability
+    // when available (fallback: use stored predicted_probability).
+    const featMap = new Map(features.map(f => [f.id, f.odds_implied_probability]));
+    const STAKE = 10;
+    let staked = 0;
+    let returned = 0;
+    for (const r of results) {
+      const implied = Number(featMap.get(r.prediction_id) ?? r.predicted_probability);
+      if (!implied || implied <= 0) continue;
+      const decimalOdds = 1 / implied;
+      staked += STAKE;
+      if (r.was_correct) returned += STAKE * decimalOdds;
+    }
+    const roi = staked > 0 ? ((returned - staked) / staked) * 100 : 0;
+
+    // Calibration — bucket predicted probability into 10% bins, compare to actual hit rate
+    const bins: { bin: string; predicted: number; actual: number; n: number }[] = [];
+    for (let b = 0; b < 10; b++) {
+      const lo = b / 10;
+      const hi = (b + 1) / 10;
+      const inBin = results.filter(r => {
+        const p = Number(r.predicted_probability);
+        return p >= lo && p < hi;
+      });
+      if (inBin.length === 0) continue;
+      const predicted = inBin.reduce((s, r) => s + Number(r.predicted_probability), 0) / inBin.length;
+      const actual = inBin.filter(r => r.was_correct).length / inBin.length;
+      bins.push({ bin: `${(lo * 100).toFixed(0)}-${(hi * 100).toFixed(0)}%`, predicted, actual, n: inBin.length });
+    }
+    // Brier-like calibration score (lower=better) → convert to 0-100 quality
+    const brier = results.reduce((s, r) => {
+      const p = Number(r.predicted_probability);
+      const o = r.was_correct ? 1 : 0;
+      return s + (p - o) ** 2;
+    }, 0) / results.length;
+    const calibrationScore = Math.max(0, (1 - brier * 4)) * 100; // scale to 0-100
+
+    // By league
+    const byLeague = new Map<string, { total: number; correct: number }>();
+    for (const r of results) {
+      const m = matchLookup.get(r.match_id);
+      const league = m?.league ?? "Unknown";
+      const d = byLeague.get(league) || { total: 0, correct: 0 };
+      d.total++;
+      if (r.was_correct) d.correct++;
+      byLeague.set(league, d);
+    }
+    const leagueChart = Array.from(byLeague.entries())
+      .filter(([, d]) => d.total >= 3)
+      .map(([league, d]) => ({ league, accuracy: Number(((d.correct / d.total) * 100).toFixed(1)), n: d.total }))
+      .sort((a, b) => b.accuracy - a.accuracy);
+
+    // 30-day trend (group by settled_at day)
+    const dayMap = new Map<string, { total: number; correct: number }>();
+    const cutoff = Date.now() - 30 * 86400_000;
+    for (const r of results) {
+      if (!r.settled_at) continue;
+      const t = new Date(r.settled_at).getTime();
+      if (t < cutoff) continue;
+      const day = new Date(r.settled_at).toISOString().slice(0, 10);
+      const d = dayMap.get(day) || { total: 0, correct: 0 };
+      d.total++;
+      if (r.was_correct) d.correct++;
+      dayMap.set(day, d);
+    }
+    const trendChart = Array.from(dayMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, d]) => ({ day: day.slice(5), accuracy: Number(((d.correct / d.total) * 100).toFixed(1)) }));
+
+    return {
+      total, correct, accuracy, avgWinEdge, byMarket, bestMarket, bestRate, byConfidence, recentAcc,
+      roi, staked, returned, calibrationScore, calibrationBins: bins, leagueChart, trendChart,
+    };
+  }, [results, features, matchLookup]);
 
   return (
     <div className="min-h-screen bg-background">
