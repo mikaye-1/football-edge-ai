@@ -262,6 +262,27 @@ Deno.serve(async (req) => {
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Load latest adaptive weights (falls back to defaults if table empty / error)
+    let WEIGHTS = { odds: 0.40, model: 0.30, form: 0.20, consistency: 0.10 };
+    try {
+      const { data: wRow } = await supabase
+        .from("model_weights")
+        .select("w_odds, w_model, w_form, w_consistency")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (wRow) {
+        WEIGHTS = {
+          odds: Number(wRow.w_odds),
+          model: Number(wRow.w_model),
+          form: Number(wRow.w_form),
+          consistency: Number(wRow.w_consistency),
+        };
+      }
+    } catch (e) {
+      console.warn("model_weights load failed, using defaults:", e);
+    }
+
     let selectedKeys: string[] | undefined;
     try {
       const body = await req.json();
