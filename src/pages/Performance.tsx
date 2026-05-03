@@ -334,19 +334,21 @@ export default function Performance() {
         ) : (
           <>
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
               {[
                 { icon: Target, label: "Win Rate", value: `${(stats.accuracy * 100).toFixed(1)}%`, color: "text-primary" },
+                { icon: PoundSterling, label: "ROI (£10/bet)", value: `${stats.roi >= 0 ? "+" : ""}${stats.roi.toFixed(1)}%`, color: stats.roi >= 0 ? "text-confidence-high" : "text-destructive", sub: `£${stats.staked.toFixed(0)} staked` },
+                { icon: Activity, label: "Calibration", value: `${stats.calibrationScore.toFixed(0)}/100`, color: "text-accent" },
                 { icon: CheckCircle, label: "Correct", value: `${stats.correct}`, color: "text-confidence-high" },
                 { icon: XCircle, label: "Incorrect", value: `${stats.total - stats.correct}`, color: "text-destructive" },
                 { icon: TrendingUp, label: "Avg Edge (Wins)", value: `${stats.avgWinEdge.toFixed(1)}%`, color: "text-accent" },
-                { icon: Trophy, label: "Best Market", value: stats.bestMarket || "—", color: "text-primary", sub: stats.bestMarket ? `${(stats.bestRate * 100).toFixed(0)}%` : "" },
+                { icon: Trophy, label: "Best Market", value: stats.bestMarket || "—", color: "text-primary", sub: stats.bestMarket ? `${(stats.bestRate * 100).toFixed(0)}% rate` : "" },
               ].map((s, i) => (
                 <motion.div
                   key={s.label}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.08 }}
+                  transition={{ delay: i * 0.06 }}
                   className="gradient-card rounded-lg border border-border p-3"
                 >
                   <div className="flex items-center gap-2 mb-1">
@@ -354,10 +356,81 @@ export default function Performance() {
                     <span className="text-xs text-muted-foreground">{s.label}</span>
                   </div>
                   <p className={`text-lg font-bold font-mono-code ${s.color} truncate`}>{s.value}</p>
-                  {"sub" in s && s.sub && <p className="text-xs text-muted-foreground">{s.sub} win rate</p>}
+                  {"sub" in s && s.sub && <p className="text-xs text-muted-foreground">{s.sub}</p>}
                 </motion.div>
               ))}
             </div>
+
+            {/* Current Model Weights */}
+            {weights && (
+              <div>
+                <h2 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-accent" />
+                  Current Model Weights
+                  <span className="text-xs text-muted-foreground font-normal">
+                    (sample size: {weights.sample_size})
+                  </span>
+                </h2>
+                <div className="gradient-card rounded-lg border border-border p-4 space-y-3">
+                  {[
+                    { key: "Odds", value: Number(weights.w_odds), color: "bg-primary" },
+                    { key: "Model", value: Number(weights.w_model), color: "bg-accent" },
+                    { key: "Form", value: Number(weights.w_form), color: "bg-confidence-high" },
+                    { key: "Consistency", value: Number(weights.w_consistency), color: "bg-confidence-medium" },
+                  ].map(w => (
+                    <div key={w.key}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-muted-foreground">{w.key}</span>
+                        <span className="font-mono-code font-bold">{(w.value * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="w-full bg-secondary rounded-full h-2">
+                        <div className={`h-2 rounded-full ${w.color} transition-all`} style={{ width: `${w.value * 100}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                  {weights.notes && <p className="text-xs text-muted-foreground pt-1 border-t border-border">{weights.notes}</p>}
+                </div>
+              </div>
+            )}
+
+            {/* Accuracy by League */}
+            {stats.leagueChart.length > 0 && (
+              <div>
+                <h2 className="font-semibold text-sm mb-3">Accuracy by League</h2>
+                <div className="gradient-card rounded-lg border border-border p-3">
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart data={stats.leagueChart}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="league" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} interval={0} angle={-15} textAnchor="end" height={60} />
+                      <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} unit="%" />
+                      <Tooltip
+                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }}
+                        formatter={(v: number, _n, p: any) => [`${v}% (${p.payload.n} preds)`, "Accuracy"]}
+                      />
+                      <Bar dataKey="accuracy" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
+            {/* Accuracy Trend (30 days) */}
+            {stats.trendChart.length > 1 && (
+              <div>
+                <h2 className="font-semibold text-sm mb-3">Accuracy Trend — Last 30 Days</h2>
+                <div className="gradient-card rounded-lg border border-border p-3">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={stats.trendChart}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="day" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} />
+                      <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} unit="%" domain={[0, 100]} />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+                      <Line type="monotone" dataKey="accuracy" stroke="hsl(var(--accent))" strokeWidth={2} dot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
 
             {/* Accuracy by Confidence */}
             <div>
