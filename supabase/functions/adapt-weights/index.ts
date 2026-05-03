@@ -84,9 +84,9 @@ Deno.serve(async (req) => {
     const correctMap = new Map(results!.map(r => [r.prediction_id, !!r.was_correct]));
 
     const rows: Row[] = [];
-    // Batch in chunks to stay under PostgREST IN limits
-    for (let i = 0; i < ids.length; i += 500) {
-      const slice = ids.slice(i, i + 500);
+    // Batch in small chunks to keep request URLs under length limits
+    for (let i = 0; i < ids.length; i += 80) {
+      const slice = ids.slice(i, i + 80);
       const { data, error } = await supabase
         .from("predictions")
         .select("id, model_probability, odds_implied_probability, form_score, consistency")
