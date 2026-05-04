@@ -103,12 +103,13 @@ export function useTopPredictions() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("predictions")
-        .select("*, matches!inner(home_team, away_team, league)")
+        .select("*, matches!inner(home_team, away_team, league, status, kickoff_time)")
         .eq("confidence", "high")
+        .in("matches.status", ["upcoming", "live"])
         .order("final_score", { ascending: false })
         .limit(6);
       if (error) throw error;
-      return data as (DbPrediction & { matches: { home_team: string; away_team: string; league: string } })[];
+      return data as (DbPrediction & { matches: { home_team: string; away_team: string; league: string; status: string; kickoff_time: string } })[];
     },
     refetchInterval: 30000,
   });
