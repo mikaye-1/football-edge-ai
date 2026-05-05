@@ -5,6 +5,7 @@ import { LeagueFilter } from "@/components/LeagueFilter";
 import { MatchCard } from "@/components/MatchCard";
 import { StatsBar } from "@/components/StatsBar";
 import { TopPredictions } from "@/components/TopPredictions";
+import { RecentResults } from "@/components/RecentResults";
 import { RefreshTimer } from "@/components/RefreshTimer";
 import { TeamSearchBar } from "@/components/TeamSearchBar";
 import { Activity, Shield, Loader2, BarChart3 } from "lucide-react";
@@ -97,6 +98,8 @@ export default function Index() {
             </div>
           </div>
         )}
+
+        <RecentResults />
       </main>
     </div>
   );
