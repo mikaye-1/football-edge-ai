@@ -25,6 +25,7 @@ const leagueFlags: Record<string, string> = {
 
 export function MatchCard({ match, index }: { match: DbMatch; index: number }) {
   const navigate = useNavigate();
+  const { aiMode } = useAIMode();
   const { data: allPreds = [] } = usePredictions(match.id);
   const preds = allPreds.slice(0, 3);
   const topPred = preds[0];
