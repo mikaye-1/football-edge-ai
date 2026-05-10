@@ -8,6 +8,7 @@ import { TopPredictions } from "@/components/TopPredictions";
 import { RecentResults } from "@/components/RecentResults";
 import { RefreshTimer } from "@/components/RefreshTimer";
 import { TeamSearchBar } from "@/components/TeamSearchBar";
+import { AIModeToggle } from "@/components/AIModeToggle";
 import { Activity, Shield, Loader2, BarChart3 } from "lucide-react";
 
 export default function Index() {
@@ -40,6 +41,7 @@ export default function Index() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            <AIModeToggle />
             <button
               onClick={() => navigate("/performance")}
               className="p-2 rounded-md text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"

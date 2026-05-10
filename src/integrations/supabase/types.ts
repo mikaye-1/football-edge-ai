@@ -14,6 +14,72 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_predictions: {
+        Row: {
+          ai_summary: string | null
+          btts_prediction: string | null
+          confidence_tier: string
+          created_at: string
+          edge_score: number
+          id: string
+          is_strong_pick: boolean
+          is_value_bet: boolean
+          key_factors: Json
+          match_id: string
+          model: string
+          over_under_prediction: string | null
+          predicted_outcome: string
+          preview_text: string | null
+          recommended_markets: Json
+          risk_flags: Json
+          updated_at: string
+          value_bet: Json | null
+          win_probability: Json
+        }
+        Insert: {
+          ai_summary?: string | null
+          btts_prediction?: string | null
+          confidence_tier: string
+          created_at?: string
+          edge_score?: number
+          id?: string
+          is_strong_pick?: boolean
+          is_value_bet?: boolean
+          key_factors?: Json
+          match_id: string
+          model?: string
+          over_under_prediction?: string | null
+          predicted_outcome: string
+          preview_text?: string | null
+          recommended_markets?: Json
+          risk_flags?: Json
+          updated_at?: string
+          value_bet?: Json | null
+          win_probability: Json
+        }
+        Update: {
+          ai_summary?: string | null
+          btts_prediction?: string | null
+          confidence_tier?: string
+          created_at?: string
+          edge_score?: number
+          id?: string
+          is_strong_pick?: boolean
+          is_value_bet?: boolean
+          key_factors?: Json
+          match_id?: string
+          model?: string
+          over_under_prediction?: string | null
+          predicted_outcome?: string
+          preview_text?: string | null
+          recommended_markets?: Json
+          risk_flags?: Json
+          updated_at?: string
+          value_bet?: Json | null
+          win_probability?: Json
+        }
+        Relationships: []
+      }
       match_stats: {
         Row: {
           away_corners: number | null

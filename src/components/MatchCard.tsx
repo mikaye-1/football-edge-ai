@@ -4,6 +4,8 @@ import type { DbMatch } from "@/hooks/useMatches";
 import { usePredictions } from "@/hooks/useMatches";
 import { LiveClock } from "./LiveIndicator";
 import { ConfidenceBadge } from "./ConfidenceBadge";
+import { AIPredictionCard } from "./AIPredictionCard";
+import { useAIMode } from "@/contexts/AIModeContext";
 import { ChevronRight, TrendingUp } from "lucide-react";
 
 const leagueFlags: Record<string, string> = {
@@ -23,6 +25,7 @@ const leagueFlags: Record<string, string> = {
 
 export function MatchCard({ match, index }: { match: DbMatch; index: number }) {
   const navigate = useNavigate();
+  const { aiMode } = useAIMode();
   const { data: allPreds = [] } = usePredictions(match.id);
   const preds = allPreds.slice(0, 3);
   const topPred = preds[0];
@@ -116,6 +119,10 @@ export function MatchCard({ match, index }: { match: DbMatch; index: number }) {
             </div>
           ))}
         </div>
+      )}
+
+      {aiMode && match.status !== "finished" && (
+        <AIPredictionCard match={match} />
       )}
 
       <div className="flex items-center justify-end mt-2 text-xs text-muted-foreground group-hover:text-primary transition-colors">
