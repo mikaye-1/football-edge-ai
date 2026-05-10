@@ -7,22 +7,25 @@ import Index from "./pages/Index.tsx";
 import MatchDetail from "./pages/MatchDetail.tsx";
 import Performance from "./pages/Performance.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import { AIModeProvider } from "./contexts/AIModeContext";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/match/:matchId" element={<MatchDetail />} />
-          <Route path="/performance" element={<Performance />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      <AIModeProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/match/:matchId" element={<MatchDetail />} />
+            <Route path="/performance" element={<Performance />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </AIModeProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
