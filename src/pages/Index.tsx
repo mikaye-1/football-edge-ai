@@ -8,6 +8,7 @@ import { TopPredictions } from "@/components/TopPredictions";
 import { RecentResults } from "@/components/RecentResults";
 import { RefreshTimer } from "@/components/RefreshTimer";
 import { TeamSearchBar } from "@/components/TeamSearchBar";
+import { AIModeToggle } from "@/components/AIModeToggle";
 import { Activity, Shield, Loader2, BarChart3 } from "lucide-react";
 
 export default function Index() {
