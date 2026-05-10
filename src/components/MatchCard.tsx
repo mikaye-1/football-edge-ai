@@ -4,6 +4,8 @@ import type { DbMatch } from "@/hooks/useMatches";
 import { usePredictions } from "@/hooks/useMatches";
 import { LiveClock } from "./LiveIndicator";
 import { ConfidenceBadge } from "./ConfidenceBadge";
+import { AIPredictionCard } from "./AIPredictionCard";
+import { useAIMode } from "@/contexts/AIModeContext";
 import { ChevronRight, TrendingUp } from "lucide-react";
 
 const leagueFlags: Record<string, string> = {
