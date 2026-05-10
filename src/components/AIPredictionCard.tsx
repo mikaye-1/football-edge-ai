@@ -55,7 +55,8 @@ function buildMatchData(match: DbMatch, odds: DbOdds[]): AIMatchData {
   };
 }
 
-export function AIPredictionCard({ match, odds }: { match: DbMatch; odds: DbOdds[] }) {
+export function AIPredictionCard({ match }: { match: DbMatch }) {
+  const { data: odds = [] } = useOdds(match.id);
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
