@@ -60,5 +60,5 @@ export async function getCachedAIPrediction(matchId: string): Promise<AIPredicti
     .eq("match_id", matchId)
     .maybeSingle();
   if (error) return null;
-  return (data as AIPrediction) ?? null;
+  return (data as unknown as AIPrediction) ?? null;
 }
