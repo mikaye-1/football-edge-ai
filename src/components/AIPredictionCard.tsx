@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Brain, Sparkles, AlertTriangle, ChevronDown, ChevronUp, Loader2, Target, TrendingUp } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import {
   generateAIPrediction,
   getCachedAIPrediction,
@@ -11,7 +10,7 @@ import {
   type AIPrediction,
 } from "@/lib/aiPredictionEngine";
 import { generateMatchSummary } from "@/lib/aiMatchSummary";
-import type { DbMatch, DbOdds } from "@/hooks/useMatches";
+import { useOdds, type DbMatch, type DbOdds } from "@/hooks/useMatches";
 
 const tierStyles: Record<string, string> = {
   HIGH: "bg-confidence-high/15 text-confidence-high border-confidence-high/30",
