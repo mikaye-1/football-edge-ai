@@ -41,6 +41,7 @@ export default function Index() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
+            <AIModeToggle />
             <button
               onClick={() => navigate("/performance")}
               className="p-2 rounded-md text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
