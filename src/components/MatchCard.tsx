@@ -121,6 +121,10 @@ export function MatchCard({ match, index }: { match: DbMatch; index: number }) {
         </div>
       )}
 
+      {aiMode && match.status !== "finished" && (
+        <AIPredictionCard match={match} />
+      )}
+
       <div className="flex items-center justify-end mt-2 text-xs text-muted-foreground group-hover:text-primary transition-colors">
         <span>Full Analysis</span>
         <ChevronRight className="w-3 h-3 ml-0.5" />
