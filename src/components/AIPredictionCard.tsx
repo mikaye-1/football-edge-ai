@@ -10,7 +10,7 @@ import {
   type AIPrediction,
 } from "@/lib/aiPredictionEngine";
 import { generateMatchSummary } from "@/lib/aiMatchSummary";
-import { useOdds, type DbMatch, type DbOdds } from "@/hooks/useMatches";
+import { type DbMatch } from "@/hooks/useMatches";
 
 const tierStyles: Record<string, string> = {
   HIGH: "bg-confidence-high/15 text-confidence-high border-confidence-high/30",
@@ -33,7 +33,6 @@ function buildMatchData(match: DbMatch): AIMatchData {
 }
 
 export function AIPredictionCard({ match }: { match: DbMatch }) {
-  const { data: odds = [] } = useOdds(match.id);
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
