@@ -52,7 +52,7 @@ export function AIPredictionCard({ match }: { match: DbMatch }) {
       setGenerating(true);
       setError(null);
       try {
-        const matchData = buildMatchData(match, odds);
+        const matchData = buildMatchData(match);
         const pred = await generateAIPrediction(match.id, matchData);
         if (cancelled) return;
         await refetch();
