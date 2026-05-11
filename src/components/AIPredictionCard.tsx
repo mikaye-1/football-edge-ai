@@ -43,31 +43,28 @@ export function AIPredictionCard({ match }: { match: DbMatch }) {
     queryFn: () => getCachedAIPrediction(match.id),
   });
 
-  // Auto-trigger generation if no cache
-  useEffect(() => {
-    let cancelled = false;
-    if (cached || generating) return;
-    (async () => {
-      setGenerating(true);
-      setError(null);
-      try {
-        const matchData = buildMatchData(match);
-        const pred = await generateAIPrediction(match.id, matchData);
-        if (cancelled) return;
-        await refetch();
-        // Fire-and-forget summary
-        generateMatchSummary(match.id, pred, matchData).then(s => {
-          if (!cancelled) setSummary(s);
-        }).catch(() => {});
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "AI failed");
-      } finally {
-        if (!cancelled) setGenerating(false);
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const matchData = buildMatchData(match);
+      const pred = await generateAIPrediction(match.id, matchData);
+      const refreshed = await refetch();
+      const savedPrediction = (refreshed.data ?? pred) as AIPrediction;
+      const existingSummary = savedPrediction.preview_text || savedPrediction.ai_summary;
+      if (existingSummary) {
+        setSummary(existingSummary);
+      } else {
+        generateMatchSummary(match.id, savedPrediction, matchData)
+          .then((s) => setSummary(s || null))
+          .catch(() => undefined);
       }
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [match.id, !!cached]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "AI failed");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   useEffect(() => {
     if (cached?.preview_text) setSummary(cached.preview_text);
@@ -82,15 +79,26 @@ export function AIPredictionCard({ match }: { match: DbMatch }) {
     );
   }
 
-  if (error && !cached) {
+  if (!cached) {
     return (
-      <div className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-destructive">
-        AI unavailable — falling back to statistical model.
+      <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 space-y-2" onClick={(e) => e.stopPropagation()}>
+        {error && (
+          <div className="text-xs text-destructive">
+            AI unavailable — using the statistical model for now.
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); handleGenerate(); }}
+          disabled={generating}
+          className="w-full inline-flex items-center justify-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+        >
+          <Brain className="w-3.5 h-3.5" />
+          Generate AI Prediction
+        </button>
       </div>
     );
   }
-
-  if (!cached) return null;
 
   const p = cached as AIPrediction;
   const tier = tierStyles[p.confidence_tier] ?? tierStyles.LOW;
