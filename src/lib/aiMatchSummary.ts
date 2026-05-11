@@ -12,7 +12,6 @@ export async function generateMatchSummary(
       body: { matchId, prediction, matchData },
     });
     if (error) throw error;
-    if (data?.error) throw new Error(data.error);
     return (data?.summary as string) ?? "";
   });
 }
