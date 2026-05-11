@@ -299,17 +299,17 @@ serve(async (req) => {
       const txt = await aiResp.text();
       console.error("AI gateway error:", aiResp.status, txt);
       if (aiResp.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded, try again shortly." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        return new Response(JSON.stringify({ error: "Rate limit exceeded, try again shortly.", fallback: true, retryable: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (aiResp.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted. Add credits in workspace settings." }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        return new Response(JSON.stringify({ error: "AI credits exhausted. Add credits in workspace settings.", fallback: true, retryable: false }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ error: "AI gateway failed", details: txt }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return new Response(JSON.stringify({ error: "AI gateway failed", details: txt, fallback: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
