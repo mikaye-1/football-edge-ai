@@ -135,9 +135,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { matchId, matchData, force } = await req.json();
-    if (!matchId || !matchData) {
-      return new Response(JSON.stringify({ error: "matchId and matchData required" }), {
+    const { matchId, matchData: clientData, force } = await req.json();
+    if (!matchId) {
+      return new Response(JSON.stringify({ error: "matchId required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -157,6 +157,126 @@ serve(async (req) => {
         });
       }
     }
+
+    // Enrich matchData server-side from DB (form, h2h, avg goals, odds)
+    const { data: match } = await supabase
+      .from("matches").select("*").eq("id", matchId).maybeSingle();
+    if (!match) throw new Error("Match not found");
+
+    const homeTeam = match.home_team;
+    const awayTeam = match.away_team;
+    const league = match.league;
+
+    // Best (max) odds per outcome
+    const { data: oddsRows } = await supabase
+      .from("odds").select("market,outcome,odds").eq("match_id", matchId);
+    const bestOf = (m: string, o: string) => {
+      const rows = (oddsRows ?? []).filter(r => r.market === m && r.outcome === o);
+      return rows.length ? Math.max(...rows.map(r => Number(r.odds))) : undefined;
+    };
+    const odds = {
+      home: bestOf("1X2", "Home Win"),
+      draw: bestOf("1X2", "Draw"),
+      away: bestOf("1X2", "Away Win"),
+      over25: bestOf("Over/Under 2.5", "Over"),
+      under25: bestOf("Over/Under 2.5", "Under"),
+    };
+
+    // Recent finished matches for form & avg goals (last 8 each)
+    const fetchRecent = async (team: string) => {
+      const { data } = await supabase
+        .from("matches")
+        .select("home_team,away_team,home_score,away_score,kickoff_time,league")
+        .eq("status", "finished")
+        .or(`home_team.eq.${team},away_team.eq.${team}`)
+        .not("home_score", "is", null)
+        .lt("kickoff_time", match.kickoff_time)
+        .order("kickoff_time", { ascending: false })
+        .limit(8);
+      return data ?? [];
+    };
+    const [homeRecent, awayRecent] = await Promise.all([fetchRecent(homeTeam), fetchRecent(awayTeam)]);
+
+    const teamForm = (team: string, games: any[]) => games.slice(0, 5).map(g => {
+      const isHome = g.home_team === team;
+      const tg = isHome ? g.home_score : g.away_score;
+      const og = isHome ? g.away_score : g.home_score;
+      return tg > og ? "W" : tg < og ? "L" : "D";
+    });
+    const avgGoals = (team: string, games: any[]) => {
+      if (!games.length) return { scored: 0, conceded: 0 };
+      let s = 0, c = 0;
+      for (const g of games) {
+        const isHome = g.home_team === team;
+        s += isHome ? (g.home_score ?? 0) : (g.away_score ?? 0);
+        c += isHome ? (g.away_score ?? 0) : (g.home_score ?? 0);
+      }
+      return { scored: +(s / games.length).toFixed(2), conceded: +(c / games.length).toFixed(2) };
+    };
+
+    const homeAvg = avgGoals(homeTeam, homeRecent);
+    const awayAvg = avgGoals(awayTeam, awayRecent);
+
+    // Head-to-head
+    const { data: h2hRows } = await supabase
+      .from("matches")
+      .select("home_team,away_team,home_score,away_score,kickoff_time")
+      .eq("status", "finished")
+      .or(`and(home_team.eq.${homeTeam},away_team.eq.${awayTeam}),and(home_team.eq.${awayTeam},away_team.eq.${homeTeam})`)
+      .not("home_score", "is", null)
+      .lt("kickoff_time", match.kickoff_time)
+      .order("kickoff_time", { ascending: false })
+      .limit(5);
+    const h2hHistory = (h2hRows ?? []).map(g => ({
+      date: g.kickoff_time?.slice(0, 10),
+      homeGoals: g.home_score,
+      awayGoals: g.away_score,
+      winner: g.home_score! > g.away_score! ? g.home_team : g.away_score! > g.home_score! ? g.away_team : "Draw",
+    }));
+
+    // Approximate league standings from finished matches this season
+    const { data: leagueGames } = await supabase
+      .from("matches")
+      .select("home_team,away_team,home_score,away_score")
+      .eq("league", league).eq("status", "finished")
+      .not("home_score", "is", null);
+    const computeStanding = (team: string) => {
+      let played = 0, points = 0, gf = 0, ga = 0;
+      for (const g of leagueGames ?? []) {
+        const isHome = g.home_team === team;
+        const isAway = g.away_team === team;
+        if (!isHome && !isAway) continue;
+        played++;
+        const tg = isHome ? g.home_score! : g.away_score!;
+        const og = isHome ? g.away_score! : g.home_score!;
+        gf += tg; ga += og;
+        points += tg > og ? 3 : tg === og ? 1 : 0;
+      }
+      return { played, points, goalsFor: gf, goalsAgainst: ga, position: 0 };
+    };
+
+    // Current model weights
+    const { data: weights } = await supabase
+      .from("model_weights").select("*").order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+    const matchData = {
+      homeTeam, awayTeam, league,
+      matchDate: match.kickoff_time,
+      venue: clientData?.venue ?? `${homeTeam} home stadium`,
+      isNeutralVenue: !!clientData?.isNeutralVenue,
+      homeForm: teamForm(homeTeam, homeRecent),
+      awayForm: teamForm(awayTeam, awayRecent),
+      h2hHistory,
+      homeStanding: computeStanding(homeTeam),
+      awayStanding: computeStanding(awayTeam),
+      homeAvgGoalsScored: homeAvg.scored,
+      homeAvgGoalsConceded: homeAvg.conceded,
+      awayAvgGoalsScored: awayAvg.scored,
+      awayAvgGoalsConceded: awayAvg.conceded,
+      odds,
+      currentModelWeights: weights ?? {},
+      injuryNews: clientData?.injuryNews ?? [],
+    };
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");

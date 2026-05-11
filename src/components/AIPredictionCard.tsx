@@ -10,7 +10,7 @@ import {
   type AIPrediction,
 } from "@/lib/aiPredictionEngine";
 import { generateMatchSummary } from "@/lib/aiMatchSummary";
-import { useOdds, type DbMatch, type DbOdds } from "@/hooks/useMatches";
+import { type DbMatch } from "@/hooks/useMatches";
 
 const tierStyles: Record<string, string> = {
   HIGH: "bg-confidence-high/15 text-confidence-high border-confidence-high/30",
@@ -21,42 +21,18 @@ const tierStyles: Record<string, string> = {
 const outcomeLabel = (o: string, home: string, away: string) =>
   o === "home_win" ? `${home} Win` : o === "away_win" ? `${away} Win` : "Draw";
 
-function buildMatchData(match: DbMatch, odds: DbOdds[]): AIMatchData {
-  const byMarket = (m: string) => odds.filter(o => o.market === m);
-  const best = (entries: DbOdds[], outcome: string) => {
-    const filtered = entries.filter(e => e.outcome === outcome);
-    if (!filtered.length) return undefined;
-    return Math.max(...filtered.map(e => Number(e.odds)));
-  };
-  const h2h = byMarket("1X2");
-  const ou = byMarket("Over/Under 2.5");
-  const btts = byMarket("BTTS");
-
+function buildMatchData(match: DbMatch): AIMatchData {
   return {
     homeTeam: match.home_team,
     awayTeam: match.away_team,
     league: match.league,
     matchDate: match.kickoff_time,
-    venue: "Home stadium",
+    venue: `${match.home_team} home stadium`,
     isNeutralVenue: false,
-    homeAvgGoalsScored: 0,
-    homeAvgGoalsConceded: 0,
-    awayAvgGoalsScored: 0,
-    awayAvgGoalsConceded: 0,
-    odds: {
-      home: best(h2h, match.home_team) ?? best(h2h, "Home"),
-      draw: best(h2h, "Draw"),
-      away: best(h2h, match.away_team) ?? best(h2h, "Away"),
-      over25: best(ou, "Over 2.5") ?? best(ou, "Over"),
-      under25: best(ou, "Under 2.5") ?? best(ou, "Under"),
-      btts_yes: best(btts, "Yes"),
-      btts_no: best(btts, "No"),
-    },
   };
 }
 
 export function AIPredictionCard({ match }: { match: DbMatch }) {
-  const { data: odds = [] } = useOdds(match.id);
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +51,7 @@ export function AIPredictionCard({ match }: { match: DbMatch }) {
       setGenerating(true);
       setError(null);
       try {
-        const matchData = buildMatchData(match, odds);
+        const matchData = buildMatchData(match);
         const pred = await generateAIPrediction(match.id, matchData);
         if (cancelled) return;
         await refetch();
