@@ -52,6 +52,7 @@ export async function generateAIPrediction(matchId: string, matchData: AIMatchDa
       body: { matchId, matchData, force },
     });
     if (error) throw error;
+    if (data?.fallback) throw new Error(data.error ?? "AI unavailable");
     if (data?.error) throw new Error(data.error);
     return data.prediction as AIPrediction;
   });

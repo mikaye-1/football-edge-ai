@@ -48,8 +48,8 @@ serve(async (req) => {
     if (!aiResp.ok) {
       const txt = await aiResp.text();
       console.error("Summary AI error:", aiResp.status, txt);
-      return new Response(JSON.stringify({ error: "AI gateway failed" }), {
-        status: aiResp.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      return new Response(JSON.stringify({ summary: prediction?.ai_summary ?? "", error: "AI gateway failed", fallback: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
