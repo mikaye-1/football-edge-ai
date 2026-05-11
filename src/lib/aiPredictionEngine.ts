@@ -44,13 +44,17 @@ export interface AIPrediction {
   is_strong_pick: boolean;
 }
 
+import { enqueueAI } from "./aiQueue";
+
 export async function generateAIPrediction(matchId: string, matchData: AIMatchData, force = false): Promise<AIPrediction> {
-  const { data, error } = await supabase.functions.invoke("generate-ai-prediction", {
-    body: { matchId, matchData, force },
+  return enqueueAI(async () => {
+    const { data, error } = await supabase.functions.invoke("generate-ai-prediction", {
+      body: { matchId, matchData, force },
+    });
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+    return data.prediction as AIPrediction;
   });
-  if (error) throw error;
-  if (data?.error) throw new Error(data.error);
-  return data.prediction as AIPrediction;
 }
 
 export async function getCachedAIPrediction(matchId: string): Promise<AIPrediction | null> {
