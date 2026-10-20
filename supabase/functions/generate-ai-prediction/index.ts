@@ -115,7 +115,8 @@ Based on ALL of the above, call submit_prediction with your structured predictio
 
 function enrichConfidence(pred: any, odds: any) {
   const impliedHome = odds?.home ? 1 / odds.home : 0;
-  const aiHome = pred.win_probability?.home ?? 0;
+  const rawHome = pred.win_probability?.home ?? 0;
+  const aiHome = rawHome > 1 ? rawHome / 100 : rawHome;
   let edge = pred.edge_score ?? 0;
   let isValueBet = false;
   if (aiHome - impliedHome > 0.05) {
