@@ -395,6 +395,7 @@ serve(async (req) => {
         recommended_markets: enriched.recommended_markets,
         is_value_bet: enriched.is_value_bet,
         is_strong_pick: enriched.is_strong_pick,
+        model: "predictiq-poisson-v1",
       }, { onConflict: "match_id" })
       .select()
       .single();
