@@ -30,31 +30,12 @@ serve(async (req) => {
       });
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
-
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: "You are a concise football analyst. Write match previews in 3 sentences max." },
-          { role: "user", content: `Write a punchy match preview for ${matchData?.homeTeam} vs ${matchData?.awayTeam} based on this prediction data: ${JSON.stringify(prediction)}. Mention the key factor, the recommended bet, and the confidence level.` },
-        ],
-      }),
-    });
-
-    if (!aiResp.ok) {
-      const txt = await aiResp.text();
-      console.error("Summary AI error:", aiResp.status, txt);
-      return new Response(JSON.stringify({ summary: prediction?.ai_summary ?? "", error: "AI gateway failed", fallback: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const aiJson = await aiResp.json();
-    const summary = aiJson.choices?.[0]?.message?.content?.trim() ?? "";
+    // Template-based preview from the in-house model output (no external AI calls)
+    const home = matchData?.homeTeam ?? "Home", away = matchData?.awayTeam ?? "Away";
+    const pick = prediction.predicted_outcome === "home_win" ? home : prediction.predicted_outcome === "away_win" ? away : "a draw";
+    const factor = Array.isArray(prediction.key_factors) && prediction.key_factors[0] ? prediction.key_factors[0] : "recent results";
+    const bet = prediction.value_bet?.recommendation ?? (Array.isArray(prediction.recommended_markets) ? prediction.recommended_markets[0] : `1X2: ${pick}`);
+    const summary = `${home} vs ${away}: our model leans towards ${pick}. Key factor — ${factor}. Recommended: ${bet} (${String(prediction.confidence_tier ?? "LOW").toLowerCase()} confidence).`;
 
     await supabase.from("ai_predictions").update({ preview_text: summary }).eq("match_id", matchId);
 
