@@ -278,45 +278,103 @@ serve(async (req) => {
       injuryNews: clientData?.injuryNews ?? [],
     };
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
-
-    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: buildUserPrompt(matchData) },
-        ],
-        tools: [PREDICTION_TOOL],
-        tool_choice: { type: "function", function: { name: "submit_prediction" } },
-      }),
-    });
-
-    if (!aiResp.ok) {
-      const txt = await aiResp.text();
-      console.error("AI gateway error:", aiResp.status, txt);
-      if (aiResp.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded, try again shortly.", fallback: true, retryable: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+    // ===== In-house model: time-decayed Poisson (attack/defence) trained on historical results =====
+    const { data: hist } = await supabase
+      .from("matches")
+      .select("home_team,away_team,home_score,away_score,kickoff_time")
+      .eq("status", "finished")
+      .not("home_score", "is", null)
+      .lt("kickoff_time", match.kickoff_time)
+      .order("kickoff_time", { ascending: false })
+      .limit(5000);
+    const games = (hist ?? []).filter(g => g.home_score != null && g.away_score != null);
+    const now = new Date(match.kickoff_time).getTime();
+    const decay = (t: string) => Math.exp(-((now - new Date(t).getTime()) / 86400000) / 180); // ~6 month half-life-ish
+    let sw = 0, sh = 0, sa = 0;
+    for (const g of games) { const w = decay(g.kickoff_time); sw += w; sh += w * g.home_score!; sa += w * g.away_score!; }
+    const baseH = sw > 0 ? sh / sw : 1.5;
+    const baseA = sw > 0 ? sa / sw : 1.15;
+    const att: Record<string, number> = {}, def: Record<string, number> = {};
+    for (const g of games) { att[g.home_team] ??= 1; att[g.away_team] ??= 1; def[g.home_team] ??= 1; def[g.away_team] ??= 1; }
+    const PRIOR = 3; // pseudo-games shrinking toward average
+    for (let it = 0; it < 15; it++) {
+      const aN: Record<string, number> = {}, aD: Record<string, number> = {}, dN: Record<string, number> = {}, dD: Record<string, number> = {};
+      for (const g of games) {
+        const w = decay(g.kickoff_time), h = g.home_team, a = g.away_team;
+        aN[h] = (aN[h] ?? 0) + w * g.home_score!; aD[h] = (aD[h] ?? 0) + w * baseH * def[a];
+        aN[a] = (aN[a] ?? 0) + w * g.away_score!; aD[a] = (aD[a] ?? 0) + w * baseA * def[h];
+        dN[h] = (dN[h] ?? 0) + w * g.away_score!; dD[h] = (dD[h] ?? 0) + w * baseA * att[a];
+        dN[a] = (dN[a] ?? 0) + w * g.home_score!; dD[a] = (dD[a] ?? 0) + w * baseH * att[h];
       }
-      if (aiResp.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits exhausted. Add credits in workspace settings.", fallback: true, retryable: false }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      for (const t of Object.keys(att)) {
+        att[t] = ((aN[t] ?? 0) + PRIOR) / ((aD[t] ?? 0) + PRIOR);
+        def[t] = ((dN[t] ?? 0) + PRIOR) / ((dD[t] ?? 0) + PRIOR);
       }
-      return new Response(JSON.stringify({ error: "AI gateway failed", details: txt, fallback: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
     }
+    const lamH = baseH * (att[homeTeam] ?? 1) * (def[awayTeam] ?? 1) * (matchData.isNeutralVenue ? baseA / baseH : 1);
+    const lamA = baseA * (att[awayTeam] ?? 1) * (def[homeTeam] ?? 1);
+    const pois = (l: number, k: number) => { let f = 1; for (let i = 2; i <= k; i++) f *= i; return Math.exp(-l) * l ** k / f; };
+    let pH = 0, pD = 0, pA = 0, pOver = 0, pBtts = 0;
+    for (let i = 0; i <= 10; i++) for (let j = 0; j <= 10; j++) {
+      const p = pois(lamH, i) * pois(lamA, j);
+      if (i > j) pH += p; else if (i === j) pD += p; else pA += p;
+      if (i + j > 2) pOver += p;
+      if (i > 0 && j > 0) pBtts += p;
+    }
+    const tot = pH + pD + pA; pH /= tot; pD /= tot; pA /= tot;
 
-    const aiJson = await aiResp.json();
-    const toolCall = aiJson.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) throw new Error("No tool call returned by AI");
-    const raw = JSON.parse(toolCall.function.arguments);
+    // Blend with de-vigged market using learned weights (more history => more trust in model)
+    const imp = odds.home && odds.draw && odds.away ? [1 / odds.home, 1 / odds.draw, 1 / odds.away] : null;
+    const impSum = imp ? imp.reduce((s, x) => s + x, 0) : 1;
+    const mkt = imp ? imp.map(x => x / impSum) : null;
+    const teamGames = homeRecent.length + awayRecent.length;
+    const wm = Number(weights?.w_model ?? 0.5), wo = Number(weights?.w_odds ?? 0.5);
+    const dataTrust = teamGames / (teamGames + 8);
+    const modelShare = mkt ? Math.min(0.8, (wm / (wm + wo || 1)) * dataTrust * 1.4) : 1;
+    const fH = mkt ? modelShare * pH + (1 - modelShare) * mkt[0] : pH;
+    const fD = mkt ? modelShare * pD + (1 - modelShare) * mkt[1] : pD;
+    const fA = mkt ? modelShare * pA + (1 - modelShare) * mkt[2] : pA;
+    const probs = { home: +(fH * 100).toFixed(1), draw: +(fD * 100).toFixed(1), away: +(fA * 100).toFixed(1) };
+    const outcomes: [string, number, number | undefined, number | undefined][] = [
+      ["home_win", fH, mkt?.[0], odds.home], ["draw", fD, mkt?.[1], odds.draw], ["away_win", fA, mkt?.[2], odds.away],
+    ];
+    const best = [...outcomes].sort((a, b) => b[1] - a[1])[0];
+    const edges = outcomes.map(([o, p, m, od]) => ({ o, edge: m != null ? (p - m) * 100 : 0, od }));
+    const bestEdge = [...edges].sort((a, b) => b.edge - a.edge)[0];
+    const label = (o: string) => o === "home_win" ? homeTeam : o === "away_win" ? awayTeam : "Draw";
+    const tier = best[1] >= 0.55 && teamGames >= 6 ? "HIGH" : best[1] >= 0.42 ? "MEDIUM" : "LOW";
+
+    const keyFactors = [
+      `Expected goals (model): ${homeTeam} ${lamH.toFixed(2)} – ${lamA.toFixed(2)} ${awayTeam}`,
+      `Attack/defence rating: ${homeTeam} ${(att[homeTeam] ?? 1).toFixed(2)}/${(def[homeTeam] ?? 1).toFixed(2)}, ${awayTeam} ${(att[awayTeam] ?? 1).toFixed(2)}/${(def[awayTeam] ?? 1).toFixed(2)}`,
+      matchData.homeForm.length ? `Form: ${homeTeam} ${matchData.homeForm.join("")} vs ${awayTeam} ${matchData.awayForm.join("") || "n/a"}` : "Limited recent form data",
+      h2hHistory.length ? `H2H last ${h2hHistory.length}: ${h2hHistory.map(h => `${h.homeGoals}-${h.awayGoals}`).join(", ")}` : "No recent head-to-head",
+    ];
+    const riskFlags: string[] = [];
+    if (teamGames < 6) riskFlags.push(`Small sample: only ${teamGames} historical games for these teams`);
+    if (!mkt) riskFlags.push("No bookmaker 1X2 odds available");
+    if (fD > 0.3) riskFlags.push("High draw likelihood");
+    if (mkt && Math.abs(pH - mkt[0]) > 0.15) riskFlags.push("Model strongly disagrees with market — check team news");
+
+    const raw = {
+      predicted_outcome: best[0],
+      confidence_tier: tier,
+      win_probability: probs,
+      edge_score: +Math.max(0, bestEdge.edge).toFixed(1),
+      value_bet: bestEdge.edge > 3 && bestEdge.od
+        ? { market: "1X2", recommendation: `${label(bestEdge.o)} @ ${bestEdge.od}`, reasoning: `Model ${(outcomes.find(x => x[0] === bestEdge.o)![1] * 100).toFixed(1)}% vs market ${((outcomes.find(x => x[0] === bestEdge.o)![2] ?? 0) * 100).toFixed(1)}%` }
+        : null,
+      key_factors: keyFactors,
+      risk_flags: riskFlags,
+      ai_summary: `Trained Poisson model (${games.length} historical matches) projects ${homeTeam} ${lamH.toFixed(1)}–${lamA.toFixed(1)} ${awayTeam}, favouring ${label(best[0])} at ${(best[1] * 100).toFixed(0)}%.`,
+      btts_prediction: pBtts >= 0.5 ? "YES" : "NO",
+      over_under_prediction: pOver >= 0.5 ? "OVER_2.5" : "UNDER_2.5",
+      recommended_markets: [
+        `1X2: ${label(best[0])}`,
+        `${pOver >= 0.5 ? "Over" : "Under"} 2.5 (${((pOver >= 0.5 ? pOver : 1 - pOver) * 100).toFixed(0)}%)`,
+        `BTTS ${pBtts >= 0.5 ? "Yes" : "No"} (${((pBtts >= 0.5 ? pBtts : 1 - pBtts) * 100).toFixed(0)}%)`,
+      ],
+    };
     const enriched = enrichConfidence(raw, matchData.odds);
 
     // Upsert into cache
