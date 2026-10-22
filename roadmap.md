@@ -1,0 +1,3 @@
+- [ ] Feed every scored finished match into training and refresh cached future picks when the training set changes.
+- [ ] Show a transparent model training-count benchmark for confidence stability.
+- [ ] Validate training progress rules, the finished-score flow, and the preview build.
