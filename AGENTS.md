@@ -1,0 +1,1 @@
+Version deterministic predictions with the historical dataset fingerprint in the existing prediction cache metadata, so newly recorded results refresh future picks without a duplicate model-data table.

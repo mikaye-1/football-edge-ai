@@ -132,6 +132,17 @@ function enrichConfidence(pred: any, odds: any) {
   return { ...pred, edge_score: edge, confidence_tier: tier, is_value_bet: isValueBet, is_strong_pick: isStrongPick };
 }
 
+function trainingFingerprint(games: any[]): string {
+  let hash = 2166136261;
+  for (const game of games) {
+    const value = `${game.kickoff_time}|${game.home_team}|${game.away_team}|${game.home_score}|${game.away_score};`;
+    for (let i = 0; i < value.length; i++) {
+      hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
+    }
+  }
+  return `predictiq-poisson-v2:${games.length}:${(hash >>> 0).toString(16)}`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -147,17 +158,6 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-
-    // Cache check
-    if (!force) {
-      const { data: cached } = await supabase
-        .from("ai_predictions").select("*").eq("match_id", matchId).maybeSingle();
-      if (cached) {
-        return new Response(JSON.stringify({ prediction: cached, cached: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
 
     // Enrich matchData server-side from DB (form, h2h, avg goals, odds)
     const { data: match } = await supabase
@@ -191,6 +191,7 @@ serve(async (req) => {
         .eq("status", "finished")
         .or(`home_team.eq.${team},away_team.eq.${team}`)
         .not("home_score", "is", null)
+        .not("away_score", "is", null)
         .lt("kickoff_time", match.kickoff_time)
         .order("kickoff_time", { ascending: false })
         .limit(8);
@@ -225,6 +226,7 @@ serve(async (req) => {
       .eq("status", "finished")
       .or(`and(home_team.eq.${homeTeam},away_team.eq.${awayTeam}),and(home_team.eq.${awayTeam},away_team.eq.${homeTeam})`)
       .not("home_score", "is", null)
+      .not("away_score", "is", null)
       .lt("kickoff_time", match.kickoff_time)
       .order("kickoff_time", { ascending: false })
       .limit(5);
@@ -240,7 +242,8 @@ serve(async (req) => {
       .from("matches")
       .select("home_team,away_team,home_score,away_score")
       .eq("league", league).eq("status", "finished")
-      .not("home_score", "is", null);
+      .not("home_score", "is", null)
+      .not("away_score", "is", null);
     const computeStanding = (team: string) => {
       let played = 0, points = 0, gf = 0, ga = 0;
       for (const g of leagueGames ?? []) {
@@ -280,15 +283,36 @@ serve(async (req) => {
     };
 
     // ===== In-house model: time-decayed Poisson (attack/defence) trained on historical results =====
-    const { data: hist } = await supabase
-      .from("matches")
-      .select("home_team,away_team,home_score,away_score,kickoff_time")
-      .eq("status", "finished")
-      .not("home_score", "is", null)
-      .lt("kickoff_time", match.kickoff_time)
-      .order("kickoff_time", { ascending: false })
-      .limit(5000);
-    const games = (hist ?? []).filter(g => g.home_score != null && g.away_score != null);
+    // Read every scored finished match eligible before kickoff, paging past the
+    // Data API's per-request row cap so old results remain part of training.
+    const games: any[] = [];
+    const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const { data: page, error: historyError } = await supabase
+        .from("matches")
+        .select("id,home_team,away_team,home_score,away_score,kickoff_time")
+        .eq("status", "finished")
+        .not("home_score", "is", null)
+        .not("away_score", "is", null)
+        .lt("kickoff_time", match.kickoff_time)
+        .order("kickoff_time", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (historyError) throw historyError;
+      games.push(...(page ?? []));
+      if (!page || page.length < pageSize) break;
+    }
+
+    const modelVersion = trainingFingerprint(games);
+    if (!force) {
+      const { data: cached } = await supabase
+        .from("ai_predictions").select("*").eq("match_id", matchId).maybeSingle();
+      if (cached?.model === modelVersion) {
+        return new Response(JSON.stringify({ prediction: cached, cached: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
     const now = new Date(match.kickoff_time).getTime();
     const decay = (t: string) => Math.exp(-((now - new Date(t).getTime()) / 86400000) / 180); // ~6 month half-life-ish
     let sw = 0, sh = 0, sa = 0;
@@ -343,7 +367,9 @@ serve(async (req) => {
     const edges = outcomes.map(([o, p, m, od]) => ({ o, edge: m != null ? (p - m) * 100 : 0, od }));
     const bestEdge = [...edges].sort((a, b) => b.edge - a.edge)[0];
     const label = (o: string) => o === "home_win" ? homeTeam : o === "away_win" ? awayTeam : "Draw";
-    const tier = best[1] >= 0.55 && teamGames >= 6 ? "HIGH" : best[1] >= 0.42 ? "MEDIUM" : "LOW";
+    const tier = best[1] >= 0.55 && teamGames >= 6 && games.length >= 500
+      ? "HIGH"
+      : best[1] >= 0.42 && games.length >= 100 ? "MEDIUM" : "LOW";
 
     const keyFactors = [
       `Expected goals (model): ${homeTeam} ${lamH.toFixed(2)} – ${lamA.toFixed(2)} ${awayTeam}`,
@@ -352,7 +378,8 @@ serve(async (req) => {
       h2hHistory.length ? `H2H last ${h2hHistory.length}: ${h2hHistory.map(h => `${h.homeGoals}-${h.awayGoals}`).join(", ")}` : "No recent head-to-head",
     ];
     const riskFlags: string[] = [];
-    if (teamGames < 6) riskFlags.push(`Small sample: only ${teamGames} historical games for these teams`);
+    if (teamGames < 6) riskFlags.push(`Small team sample: only ${teamGames} recent historical games for these teams`);
+    if (games.length < 500) riskFlags.push(`Training sample: ${games.length} scored matches; confidence stabilizes around 500 matches`);
     if (!mkt) riskFlags.push("No bookmaker 1X2 odds available");
     if (fD > 0.3) riskFlags.push("High draw likelihood");
     if (mkt && Math.abs(pH - mkt[0]) > 0.15) riskFlags.push("Model strongly disagrees with market — check team news");
@@ -396,7 +423,7 @@ serve(async (req) => {
         recommended_markets: enriched.recommended_markets,
         is_value_bet: enriched.is_value_bet,
         is_strong_pick: enriched.is_strong_pick,
-        model: "predictiq-poisson-v1",
+      model: modelVersion,
       }, { onConflict: "match_id" })
       .select()
       .single();
