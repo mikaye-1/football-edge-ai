@@ -42,6 +42,7 @@ export interface AIPrediction {
   recommended_markets: string[];
   is_value_bet: boolean;
   is_strong_pick: boolean;
+  model?: string;
 }
 
 import { enqueueAI } from "./aiQueue";

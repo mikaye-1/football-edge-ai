@@ -10,6 +10,7 @@ import {
   type AIPrediction,
 } from "@/lib/aiPredictionEngine";
 import { generateMatchSummary } from "@/lib/aiMatchSummary";
+import { getModelTrainingProgress } from "@/lib/modelTrainingProgress";
 import { type DbMatch } from "@/hooks/useMatches";
 
 const tierStyles: Record<string, string> = {
@@ -43,12 +44,12 @@ export function AIPredictionCard({ match }: { match: DbMatch }) {
     queryFn: () => getCachedAIPrediction(match.id),
   });
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (force = false) => {
     setGenerating(true);
     setError(null);
     try {
       const matchData = buildMatchData(match);
-      const pred = await generateAIPrediction(match.id, matchData);
+      const pred = await generateAIPrediction(match.id, matchData, force);
       const refreshed = await refetch();
       const savedPrediction = (refreshed.data ?? pred) as AIPrediction;
       const existingSummary = savedPrediction.preview_text || savedPrediction.ai_summary;
@@ -102,6 +103,7 @@ export function AIPredictionCard({ match }: { match: DbMatch }) {
 
   const p = cached as AIPrediction;
   const tier = tierStyles[p.confidence_tier] ?? tierStyles.LOW;
+  const trainingProgress = getModelTrainingProgress(p.model);
   const probData = [
     { name: "Home", value: Math.round((p.win_probability?.home ?? 0) * 100) },
     { name: "Draw", value: Math.round((p.win_probability?.draw ?? 0) * 100) },
@@ -154,6 +156,45 @@ export function AIPredictionCard({ match }: { match: DbMatch }) {
           />
         </div>
       </div>
+
+      {trainingProgress && (
+        <div className="space-y-1.5" aria-label="Model training progress">
+          <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+            <span>Training data</span>
+            <span className="font-mono-code text-foreground">
+              {trainingProgress.matchCount.toLocaleString()} / {trainingProgress.benchmark.toLocaleString()} matches
+            </span>
+          </div>
+          <div
+            className="h-1.5 rounded bg-muted overflow-hidden"
+            role="progressbar"
+            aria-label="Matches toward confidence stability benchmark"
+            aria-valuemin={0}
+            aria-valuemax={trainingProgress.benchmark}
+            aria-valuenow={Math.min(trainingProgress.matchCount, trainingProgress.benchmark)}
+          >
+            <div
+              className="h-full bg-primary transition-[width]"
+              style={{ width: `${Math.min(100, (trainingProgress.matchCount / trainingProgress.benchmark) * 100)}%` }}
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            {trainingProgress.reached
+              ? "500-match benchmark reached; confidence is more stable."
+              : `${trainingProgress.remaining.toLocaleString()} more scored matches toward the 500-match stability benchmark.`}
+          </p>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); handleGenerate(true); }}
+        disabled={generating}
+        className="w-full inline-flex items-center justify-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-60 transition-colors"
+      >
+        {generating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+        Recalculate with latest results
+      </button>
 
       <button
         onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}

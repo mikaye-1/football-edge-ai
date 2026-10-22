@@ -566,23 +566,16 @@ Deno.serve(async (req) => {
                 }).eq("id", m.id);
                 finishedCount++;
               } else {
-                // No score data but >3h old — mark finished anyway
-                await supabase.from("matches").update({ status: "finished" }).eq("id", m.id);
-                finishedCount++;
+                // Without a verified final score, leave this match retryable and
+                // out of the model's training history.
+                console.log(`No completed score returned yet for ${m.id}; will retry later`);
               }
             }
           } else {
-            // API error — just mark them finished without scores
-            for (const m of matches) {
-              await supabase.from("matches").update({ status: "finished" }).eq("id", m.id);
-              finishedCount++;
-            }
+            console.error(`Scores request failed for ${sportKey}: ${scoresResp.status}`);
           }
         } catch {
-          for (const m of matches) {
-            await supabase.from("matches").update({ status: "finished" }).eq("id", m.id);
-            finishedCount++;
-          }
+          console.error(`Scores request failed for ${sportKey}; stale matches remain retryable`);
         }
       }
     }
