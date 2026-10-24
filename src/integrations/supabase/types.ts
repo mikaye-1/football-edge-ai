@@ -80,6 +80,42 @@ export type Database = {
         }
         Relationships: []
       }
+      data_sync_logs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          records_processed: number
+          source: string
+          started_at: string
+          status: string
+          sync_type: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          records_processed?: number
+          source?: string
+          started_at?: string
+          status: string
+          sync_type: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          records_processed?: number
+          source?: string
+          started_at?: string
+          status?: string
+          sync_type?: string
+        }
+        Relationships: []
+      }
       match_stats: {
         Row: {
           away_corners: number | null
@@ -380,6 +416,69 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      standings: {
+        Row: {
+          created_at: string
+          draws: number
+          form: string | null
+          goal_diff: number
+          goals_against: number
+          goals_for: number
+          id: string
+          league: string
+          losses: number
+          matches_played: number
+          points: number
+          position: number
+          season: string
+          source: string
+          team_external_id: string
+          team_name: string
+          updated_at: string
+          wins: number
+        }
+        Insert: {
+          created_at?: string
+          draws?: number
+          form?: string | null
+          goal_diff?: number
+          goals_against?: number
+          goals_for?: number
+          id?: string
+          league: string
+          losses?: number
+          matches_played?: number
+          points?: number
+          position: number
+          season: string
+          source?: string
+          team_external_id: string
+          team_name: string
+          updated_at?: string
+          wins?: number
+        }
+        Update: {
+          created_at?: string
+          draws?: number
+          form?: string | null
+          goal_diff?: number
+          goals_against?: number
+          goals_for?: number
+          id?: string
+          league?: string
+          losses?: number
+          matches_played?: number
+          points?: number
+          position?: number
+          season?: string
+          source?: string
+          team_external_id?: string
+          team_name?: string
+          updated_at?: string
+          wins?: number
+        }
+        Relationships: []
       }
     }
     Views: {
