@@ -9,7 +9,7 @@ import { RecentResults } from "@/components/RecentResults";
 import { RefreshTimer } from "@/components/RefreshTimer";
 import { TeamSearchBar } from "@/components/TeamSearchBar";
 import { AIModeToggle } from "@/components/AIModeToggle";
-import { Activity, Shield, Loader2, BarChart3 } from "lucide-react";
+import { Activity, Shield, Loader2, BarChart3, Table2 } from "lucide-react";
 
 export default function Index() {
   const [league, setLeague] = useState<string>("all");
@@ -42,6 +42,13 @@ export default function Index() {
           </div>
           <div className="flex items-center gap-2">
             <AIModeToggle />
+            <button
+              onClick={() => navigate("/standings")}
+              className="p-2 rounded-md text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
+              title="League Standings"
+            >
+              <Table2 className="w-4 h-4" />
+            </button>
             <button
               onClick={() => navigate("/performance")}
               className="p-2 rounded-md text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"

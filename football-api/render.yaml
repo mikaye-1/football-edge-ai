@@ -1,0 +1,23 @@
+# Render blueprint for the Burna Predict IQ datafc backend.
+# Deploy with: Render dashboard → New → Blueprint → point at this repo/folder.
+# Set INGEST_URL and INGEST_SECRET in the Render dashboard after the first deploy.
+services:
+  - type: web
+    name: burna-predict-iq-datafc
+    runtime: python
+    plan: starter
+    rootDir: football-api
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: SYNC_INTERVAL_MINUTES
+        value: "15"
+      - key: DATAFC_CACHE_TTL_HOURS
+        value: "24"
+      - key: INGEST_URL
+        sync: false
+      - key: INGEST_SECRET
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false

@@ -53,32 +53,67 @@ function int(v: unknown, name: string, errors: string[]): number {
   return n;
 }
 
-function validateRow(raw: unknown, errors: string[]): StandingRow | null {
-  if (typeof raw !== "object" || raw === null) {
-    errors.push("standings row must be an object");
-    return null;
+// Goal difference is signed (teams can have a negative GD), so it gets its
+// own validator with a symmetric range.
+function signedInt(v: unknown, name: string, errors: string[]): number {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isInteger(n) || n < -10000 || n > 10000) {
+    errors.push(`${name} must be an integer between -10000 and 10000`);
+    return 0;
   }
+  return n;
+}
+
+// Validates one standings row with its own error list, so a problem in one
+// row can never invalidate the rows around it.
+function validateRow(raw: unknown): StandingRow | null {
+  if (typeof raw !== "object" || raw === null) return null;
   const r = raw as Record<string, unknown>;
+  const errors: string[] = [];
+
   const league = str(r.league, "league", errors);
   const season = str(r.season, "season", errors);
   const teamName = str(r.team_name, "team_name", errors);
   const teamExternalId = str(r.team_external_id, "team_external_id", errors);
+  const position = int(r.position, "position", errors);
+  const matchesPlayed = int(r.matches_played, "matches_played", errors);
+  const wins = int(r.wins, "wins", errors);
+  const draws = int(r.draws, "draws", errors);
+  const losses = int(r.losses, "losses", errors);
+  const goalsFor = int(r.goals_for, "goals_for", errors);
+  const goalsAgainst = int(r.goals_against, "goals_against", errors);
+  const points = int(r.points, "points", errors);
   const form = r.form == null ? null : String(r.form).slice(0, 30);
-  if (errors.length > 0) return null;
+
+  // Trust the synced goal_diff only if it is a well-formed signed integer;
+  // otherwise derive it from the scores so the row still lands.
+  const gdRaw = r.goal_diff;
+  const gdCandidate =
+    typeof gdRaw === "number" ? gdRaw : gdRaw == null || gdRaw === "" ? NaN : Number(gdRaw);
+  const goalDiff =
+    Number.isInteger(gdCandidate) && Math.abs(gdCandidate) <= 10000
+      ? gdCandidate
+      : goalsFor - goalsAgainst;
+
+  if (errors.length > 0) {
+    console.warn("Rejected standings row:", errors.join("; "));
+    return null;
+  }
+
   return {
     league,
     season,
     team_name: teamName,
     team_external_id: teamExternalId,
-    position: int(r.position, "position", errors),
-    matches_played: int(r.matches_played, "matches_played", errors),
-    wins: int(r.wins, "wins", errors),
-    draws: int(r.draws, "draws", errors),
-    losses: int(r.losses, "losses", errors),
-    goals_for: int(r.goals_for, "goals_for", errors),
-    goals_against: int(r.goals_against, "goals_against", errors),
-    goal_diff: int(r.goal_diff, "goal_diff", errors) === 0 && r.goal_diff === 0 ? 0 : int(r.goal_diff, "goal_diff", errors),
-    points: int(r.points, "points", errors),
+    position,
+    matches_played: matchesPlayed,
+    wins,
+    draws,
+    losses,
+    goals_for: goalsFor,
+    goals_against: goalsAgainst,
+    goal_diff: goalDiff,
+    points,
     form,
   };
 }
@@ -135,17 +170,18 @@ Deno.serve(async (req: Request) => {
   }
 
   // Validate rows only for successful syncs; error logs carry zero rows.
+  // Individual bad rows are skipped (logged) instead of failing the batch.
   const rows: StandingRow[] = [];
+  let rejected = 0;
   if (status === "success") {
     const rawRows = Array.isArray(payload.standings) ? payload.standings : [];
-    const rowErrors: string[] = [];
     for (const raw of rawRows) {
-      const before = rowErrors.length;
-      const row = validateRow(raw, rowErrors);
-      if (row && rowErrors.length === before) rows.push(row);
+      const row = validateRow(raw);
+      if (row) rows.push(row);
+      else rejected++;
     }
-    if (rowErrors.length > 0) {
-      return new Response(JSON.stringify({ error: "Invalid standings rows", details: rowErrors.slice(0, 10) }), {
+    if (rows.length === 0) {
+      return new Response(JSON.stringify({ error: "No valid standings rows in payload" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -191,7 +227,7 @@ Deno.serve(async (req: Request) => {
     records_processed: inserted,
     started_at: startedAt,
     finished_at: new Date().toISOString(),
-    error_message: errorMessage,
+    error_message: rejected > 0 ? `${errorMessage ?? ""} (${rejected} rows rejected)` : errorMessage,
   });
   if (log.error) {
     return new Response(JSON.stringify({ error: `Log insert failed: ${log.error.message}`, inserted }), {
@@ -199,7 +235,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  return new Response(JSON.stringify({ ok: true, inserted }), {
+  return new Response(JSON.stringify({ ok: true, inserted, rejected }), {
     status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
