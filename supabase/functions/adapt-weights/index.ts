@@ -67,12 +67,19 @@ Deno.serve(async (req) => {
       : { odds: 0.40, model: 0.30, form: 0.20, consistency: 0.10 };
 
     // Pull resolved predictions joined with prediction features
-    const { data: results, error: rErr } = await supabase
-      .from("prediction_results")
-      .select("prediction_id, was_correct")
-      .not("was_correct", "is", null)
-      .limit(5000);
-    if (rErr) throw rErr;
+    const results: { prediction_id: string; was_correct: boolean | null }[] = [];
+    for (let from = 0; from < 10000; from += 1000) {
+      const { data: page, error: rErr } = await supabase
+        .from("prediction_results")
+        .select("prediction_id, was_correct")
+        .not("was_correct", "is", null)
+        .order("settled_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, from + 999);
+      if (rErr) throw rErr;
+      results.push(...(page ?? []));
+      if (!page || page.length < 1000) break;
+    }
 
     const ids = (results ?? []).map(r => r.prediction_id);
     if (ids.length === 0) {

@@ -287,7 +287,8 @@ serve(async (req) => {
     // Data API's per-request row cap so old results remain part of training.
     const games: any[] = [];
     const pageSize = 1000;
-    for (let from = 0; ; from += pageSize) {
+    const MAX_HISTORY = 10000; // most recent 10k scored matches
+    for (let from = 0; from < MAX_HISTORY; from += pageSize) {
       const { data: page, error: historyError } = await supabase
         .from("matches")
         .select("id,home_team,away_team,home_score,away_score,kickoff_time")
