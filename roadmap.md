@@ -1,3 +1,6 @@
-- [ ] Feed every scored finished match into training and refresh cached future picks when the training set changes.
-- [ ] Show a transparent model training-count benchmark for confidence stability.
-- [ ] Validate training progress rules, the finished-score flow, and the preview build.
+- [x] Feed every scored finished match into training and refresh cached future picks when the training set changes.
+- [x] Show a transparent model training-count benchmark for confidence stability.
+- [x] Validate training progress rules, the finished-score flow, and the preview build.
+- [x] datafc Python backend (football-api), ingest-datafc edge function, standings page, tests.
+- [ ] Deploy the datafc Python backend to Render/Railway/Fly and paste the generated INGEST_SECRET into that host's INGEST_SECRET variable. (Needs the user's hosting account.)
+- [ ] Confirm live standings appear on the Standings page after the first external sync. (Blocked on the host deploy.)
