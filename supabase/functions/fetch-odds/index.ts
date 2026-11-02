@@ -249,11 +249,46 @@ async function fetchEventsWithFallback(sportKey: string, apiKey: string): Promis
   return events || [];
 }
 
+let refreshRunning = false;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Never start a second pass while one is already running.
+  if (refreshRunning) {
+    return new Response(JSON.stringify({ success: true, already_running: true }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  refreshRunning = true;
+
+  const pass = runRefreshPass()
+    .catch((e) => {
+      console.error("Refresh pass failed:", e);
+      return { error: String(e) };
+    })
+    .finally(() => {
+      refreshRunning = false;
+    });
+
+  // Respond immediately and let the multi-league pass continue in the
+  // background so the request never hits the 150s idle timeout.
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+    EdgeRuntime.waitUntil(pass);
+    return new Response(JSON.stringify({ success: true, backgrounded: true, message: "Refresh pass started" }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const result = await pass;
+  return new Response(JSON.stringify(result), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+});
+
+async function runRefreshPass(): Promise<Record<string, unknown>> {
   try {
     const API_KEY = Deno.env.get("THE_ODDS_API_KEY");
     if (!API_KEY) throw new Error("THE_ODDS_API_KEY not configured");
@@ -580,15 +615,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({
+    return {
       success: true,
       matches: totalMatches,
       odds: totalOdds,
       predictions: totalPredictions,
       finished: finishedCount,
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    };
   } catch (error) {
     console.error("Error:", error);
     return new Response(JSON.stringify({ error: error.message }), {
