@@ -42,17 +42,26 @@ interface MatchInfo {
   predicted_away_score: number | null;
 }
 
+const HISTORY_LIMIT = 10000;
+
 function usePerformanceData() {
   return useQuery({
     queryKey: ["performance-results"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("prediction_results")
-        .select("*")
-        .not("was_correct", "is", null)
-        .order("settled_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as PredictionResult[];
+      const all: PredictionResult[] = [];
+      for (let from = 0; from < HISTORY_LIMIT; from += 1000) {
+        const { data, error } = await supabase
+          .from("prediction_results")
+          .select("*")
+          .not("was_correct", "is", null)
+          .order("settled_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, from + 999);
+        if (error) throw error;
+        all.push(...((data ?? []) as PredictionResult[]));
+        if (!data || data.length < 1000) break;
+      }
+      return all;
     },
     refetchInterval: 60000,
   });
@@ -62,13 +71,20 @@ function useFinishedMatches() {
   return useQuery({
     queryKey: ["finished-matches"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("matches")
-        .select("id, home_team, away_team, league, home_score, away_score, predicted_home_score, predicted_away_score")
-        .eq("status", "finished")
-        .order("kickoff_time", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as MatchInfo[];
+      const all: MatchInfo[] = [];
+      for (let from = 0; from < HISTORY_LIMIT; from += 1000) {
+        const { data, error } = await supabase
+          .from("matches")
+          .select("id, home_team, away_team, league, home_score, away_score, predicted_home_score, predicted_away_score")
+          .eq("status", "finished")
+          .order("kickoff_time", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, from + 999);
+        if (error) throw error;
+        all.push(...((data ?? []) as MatchInfo[]));
+        if (!data || data.length < 1000) break;
+      }
+      return all;
     },
     refetchInterval: 60000,
   });
