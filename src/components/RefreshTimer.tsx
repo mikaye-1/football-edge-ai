@@ -20,7 +20,10 @@ export function RefreshTimer() {
     try {
       const { error } = await supabase.functions.invoke("fetch-odds");
       if (error) console.error("Fetch odds error:", error);
+      // The refresh pass keeps running in the background after the response,
+      // so stagger a few refetches to catch data as leagues land.
       queryClient.invalidateQueries();
+      [10, 40, 90, 150].forEach(sec => setTimeout(() => queryClient.invalidateQueries(), sec * 1000));
     } catch (e) {
       console.error("Fetch error:", e);
     } finally {
