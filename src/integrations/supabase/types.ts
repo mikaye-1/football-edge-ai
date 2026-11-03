@@ -80,6 +80,66 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_top20: {
+        Row: {
+          away_team: string
+          confidence_score: number
+          created_at: string
+          data_quality: number
+          for_date: string
+          home_team: string
+          id: string
+          kickoff_time: string
+          league: string
+          market: string
+          match_id: string
+          overall_score: number
+          probability: number
+          rank: number
+          risk_level: string
+          selection: string
+          stats: Json
+        }
+        Insert: {
+          away_team: string
+          confidence_score: number
+          created_at?: string
+          data_quality: number
+          for_date: string
+          home_team: string
+          id?: string
+          kickoff_time: string
+          league: string
+          market: string
+          match_id: string
+          overall_score: number
+          probability: number
+          rank: number
+          risk_level: string
+          selection: string
+          stats?: Json
+        }
+        Update: {
+          away_team?: string
+          confidence_score?: number
+          created_at?: string
+          data_quality?: number
+          for_date?: string
+          home_team?: string
+          id?: string
+          kickoff_time?: string
+          league?: string
+          market?: string
+          match_id?: string
+          overall_score?: number
+          probability?: number
+          rank?: number
+          risk_level?: string
+          selection?: string
+          stats?: Json
+        }
+        Relationships: []
+      }
       data_sync_logs: {
         Row: {
           created_at: string
