@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.4"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -77,6 +77,66 @@ export type Database = {
           updated_at?: string
           value_bet?: Json | null
           win_probability?: Json
+        }
+        Relationships: []
+      }
+      daily_top20: {
+        Row: {
+          away_team: string
+          confidence_score: number
+          created_at: string
+          data_quality: number
+          for_date: string
+          home_team: string
+          id: string
+          kickoff_time: string
+          league: string
+          market: string
+          match_id: string
+          overall_score: number
+          probability: number
+          rank: number
+          risk_level: string
+          selection: string
+          stats: Json
+        }
+        Insert: {
+          away_team: string
+          confidence_score: number
+          created_at?: string
+          data_quality: number
+          for_date: string
+          home_team: string
+          id?: string
+          kickoff_time: string
+          league: string
+          market: string
+          match_id: string
+          overall_score: number
+          probability: number
+          rank: number
+          risk_level: string
+          selection: string
+          stats?: Json
+        }
+        Update: {
+          away_team?: string
+          confidence_score?: number
+          created_at?: string
+          data_quality?: number
+          for_date?: string
+          home_team?: string
+          id?: string
+          kickoff_time?: string
+          league?: string
+          market?: string
+          match_id?: string
+          overall_score?: number
+          probability?: number
+          rank?: number
+          risk_level?: string
+          selection?: string
+          stats?: Json
         }
         Relationships: []
       }

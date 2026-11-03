@@ -8,6 +8,13 @@
       "when": 1792817590491,
       "tag": "0000_create_datafc_standings",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793683070062,
+      "tag": "0001_create_daily_top20",
+      "breakpoints": true
     }
   ]
 }
