@@ -2,7 +2,6 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import {
   buildCandidates,
-  goalProbs,
   rankCandidates,
   trainPoisson,
   type Fixture,
@@ -167,7 +166,6 @@ serve(async (req) => {
       date,
       fixturesAnalyzed: fixtures.length,
       totalCandidates,
-      modelVersion: goalProbs(1, 1) && `poisson-shared-v1`,
       picks: picksOut,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
