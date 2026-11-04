@@ -7,6 +7,7 @@ import Index from "./pages/Index.tsx";
 import MatchDetail from "./pages/MatchDetail.tsx";
 import Performance from "./pages/Performance.tsx";
 import Standings from "./pages/Standings.tsx";
+import DailyTop20 from "./pages/DailyTop20.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { AIModeProvider } from "./contexts/AIModeContext";
 
@@ -24,6 +25,7 @@ const App = () => (
             <Route path="/match/:matchId" element={<MatchDetail />} />
             <Route path="/performance" element={<Performance />} />
             <Route path="/standings" element={<Standings />} />
+            <Route path="/daily-top20" element={<DailyTop20 />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
