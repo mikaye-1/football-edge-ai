@@ -2,5 +2,6 @@
 - [x] Show a transparent model training-count benchmark for confidence stability.
 - [x] Validate training progress rules, the finished-score flow, and the preview build.
 - [x] datafc Python backend (football-api), ingest-datafc edge function, standings page, tests.
+- [x] One-Click Daily Top 20 Predictions Engine: date picker, all fixtures × spec markets (BTTS, O/U 1.5/2.5/3.5, match result, Not To Win), confidence/data-quality/risk scoring, top-20 ranking, /daily-top20 page, Excel export, unit tests.
 - [ ] Deploy the datafc Python backend to Render/Railway/Fly and paste the generated INGEST_SECRET into that host's INGEST_SECRET variable. (Needs the user's hosting account.)
 - [ ] Confirm live standings appear on the Standings page after the first external sync. (Blocked on the host deploy.)
