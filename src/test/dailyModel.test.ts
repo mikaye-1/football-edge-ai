@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCandidates,
   goalProbs,
+  matchLambdas,
   rankCandidates,
   trainPoisson,
   type Candidate,
@@ -49,7 +50,9 @@ describe("buildCandidates", () => {
   const model = trainPoisson(history(), Date.UTC(2026, 9, 10));
 
   it("derives Not To Win from outcome probabilities (draw + other win)", () => {
-    const p = goalProbs(1.8, 0.9);
+    const model = trainPoisson(history(), Date.UTC(2026, 9, 10));
+    const { lamH, lamA } = matchLambdas(model, fixture);
+    const p = goalProbs(lamH, lamA);
     const cands = buildCandidates(model, [fixture], {}, { wModel: 0.5, wOdds: 0.5 });
     const homeNtw = cands.find((c) => c.selection === "Strong FC Not To Win")!;
     expect(homeNtw.probability / 100).toBeCloseTo(p.draw + p.away, 1);
@@ -73,16 +76,10 @@ describe("buildCandidates", () => {
   });
 
   it("computes overall = probability × confidence × data quality on a 0-100 scale", () => {
-    const cand: Candidate = {
-      matchId: "x", league: "L", homeTeam: "A", awayTeam: "B", kickoffTime: "",
-      market: "BTTS", selection: "Yes", probability: 78, marketProbability: null,
-      confidence: 82, dataQuality: 90, risk: "Low", overall: 0, stats: {
-        expectedGoals: "", homeForm: "", awayForm: "", h2h: "", sampleGames: 0,
-        h2hCount: 0, trainingMatches: 0, leagueAvgGoals: 0, odds: null,
-      },
-    };
-    const [ranked] = rankCandidates([cand], { minProbability: 0, minConfidence: 0 });
-    expect(ranked.overall).toBeCloseTo((78 * 82 * 90) / 10000, 1);
+    const cands = buildCandidates(model, [fixture], {}, { wModel: 0.5, wOdds: 0.5 });
+    const c = cands[0];
+    const expected = Math.round(c.probability * c.confidence * c.dataQuality) / 10000;
+    expect(c.overall).toBeCloseTo(expected, 1);
   });
 });
 
