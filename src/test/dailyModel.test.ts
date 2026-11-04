@@ -5,7 +5,6 @@ import {
   matchLambdas,
   rankCandidates,
   trainPoisson,
-  type Candidate,
   type HistoryGame,
 } from "../../supabase/functions/_shared/dailyModel";
 
