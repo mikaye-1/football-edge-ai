@@ -80,7 +80,7 @@ export default function DailyTop20() {
         .eq("for_date", date)
         .order("rank", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as TopPick[];
+      return (data ?? []) as unknown as TopPick[];
     },
   });
 
