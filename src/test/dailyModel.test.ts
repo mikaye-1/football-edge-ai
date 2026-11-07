@@ -5,7 +5,14 @@ import {
   matchLambdas,
   rankCandidates,
   trainPoisson,
+  calibrationTable,
+  learnPerformance,
+  MARKET_KEYS,
+  overallScore,
+  reliabilityOf,
+  weightedAvailable,
   type Candidate,
+  type MarketKey,
   type HistoryGame,
 } from "../../supabase/functions/_shared/dailyModel";
 
@@ -75,36 +82,70 @@ describe("buildCandidates", () => {
     ]);
   });
 
-  it("computes overall = probability × confidence × data quality on a 0-100 scale", () => {
-    const cands = buildCandidates(model, [fixture], {}, { wModel: 0.5, wOdds: 0.5 });
-    const c = cands[0];
-    const expected = Math.round(c.probability * c.confidence * c.dataQuality) / 10000;
-    expect(c.overall).toBeCloseTo(expected, 1);
+  it("treats missing H2H/odds as unavailable, not as zero quality", () => {
+    const c = buildCandidates(model, [fixture], {}, { wModel: 0.5, wOdds: 0.5 })[0];
+    expect(c.stats.missingFeatures).toContain("odds");
+    // all available features are perfect here (20 games, H2H, form) → full quality
+    expect(c.dataQuality).toBe(100);
+  });
+});
+
+describe("scoring", () => {
+  it("redistributes weight of unavailable components", () => {
+    expect(weightedAvailable([{ w: 1, v: 0.8 }, { w: 3, v: null }])).toBeCloseTo(0.8);
+  });
+
+  it("overall is normalized to 0-100", () => {
+    const all1 = { probability: 1, confidence: 1, dataQuality: 1, sampleSize: 1, agreement: null, marketHistory: null, calibration: null };
+    expect(overallScore(all1)).toBe(100);
+  });
+
+  it("labels 90.9% / 72.3 confidence / 57.8 quality as Medium reliability", () => {
+    expect(reliabilityOf(90.9, 72.3, 57.8).label).toBe("Medium");
+  });
+});
+
+describe("calibration", () => {
+  it("buckets settled picks into probability bands with hit rate and error", () => {
+    const settled = Array.from({ length: 10 }, (_, i) => ({ marketKey: "BTTS" as const, probability: 92, won: i < 7 }));
+    const row = calibrationTable(learnPerformance(settled)).find((r) => r.band === "90–95%")!;
+    expect(row.count).toBe(10);
+    expect(row.hitRate).toBe(70);
+    expect(row.calibrationError).toBe(-22);
   });
 });
 
 describe("rankCandidates", () => {
-  const cand = (matchId: string, probability: number, overall: number): Candidate => ({
+  let n = 0;
+  const cand = (matchId: string, marketKey: MarketKey, overall: number, probability = 80): Candidate => ({
     matchId, league: "L", homeTeam: "A", awayTeam: "B", kickoffTime: "",
-    market: "BTTS", selection: "Yes", probability, marketProbability: null,
-    confidence: 80, dataQuality: 80, risk: "Low", overall,
+    market: marketKey, marketKey, selection: `${marketKey}-${n++}`, probability, marketProbability: null,
+    confidence: 80, dataQuality: 80, reliabilityScore: 80, reliability: "High", risk: "Low", overall,
     stats: {
-      expectedGoals: "", homeForm: "", awayForm: "", h2h: "", sampleGames: 0,
-      h2hCount: 0, trainingMatches: 0, leagueAvgGoals: 0, odds: null,
+      expectedGoals: "", homeForm: "", awayForm: "", h2h: "", sampleGames: 0, h2hCount: 0,
+      leagueAvgGoals: 0, odds: null, availableFeatures: [], missingFeatures: [], components: {}, keyFactors: "", mainRisk: "",
     },
   });
 
-  it("caps the number of markets taken from a single match", () => {
-    const many = ["a", "b", "c", "d", "e"].map((m, i) => cand(m, 90, 90 - i));
-    const ranked = rankCandidates([...many, ...many.map((c) => ({ ...c, matchId: "one", overall: c.overall, market: c.market + c.matchId }))], { minProbability: 0, minConfidence: 0, maxPerMatch: 3, limit: 20 });
-    const fromOne = ranked.filter((c) => c.matchId === "one");
-    expect(fromOne.length).toBe(3);
+  it("takes at most 2 predictions per fixture", () => {
+    const keys: MarketKey[] = ["BTTS", "Home Win", "Under 3.5", "Away Win"];
+    const { picks } = rankCandidates(keys.map((k, i) => cand("one", k, 90 - i)));
+    expect(picks.length).toBe(2);
   });
 
-  it("selects at most 20 and drops selections below the minimum confidence", () => {
-    const many = Array.from({ length: 40 }, (_, i) => cand(`m${i}`, i % 2 === 0 ? 90 : 30, 90 - i));
-    const ranked = rankCandidates(many, { minProbability: 50, minConfidence: 40, limit: 20 });
-    expect(ranked.length).toBe(20);
-    expect(ranked.every((c) => c.probability >= 50)).toBe(true);
+  it("skips correlated markets on the same fixture", () => {
+    const { picks } = rankCandidates([cand("m", "Under 2.5", 90), cand("m", "Under 3.5", 89)]);
+    expect(picks.length).toBe(1);
+  });
+
+  it("caps a single market without padding with weaker ones", () => {
+    const many = Array.from({ length: 10 }, (_, i) => cand(`m${i}`, "Over 1.5", 90 - i));
+    const { picks } = rankCandidates(many, { maxPerMarket: 4 });
+    expect(picks.length).toBe(4);
+  });
+
+  it("never manufactures picks to reach 20", () => {
+    const many = Array.from({ length: 30 }, (_, i) => cand(`m${i}`, MARKET_KEYS[i % 7], i < 13 ? 80 : 30));
+    expect(rankCandidates(many).picks.length).toBe(13);
   });
 });
