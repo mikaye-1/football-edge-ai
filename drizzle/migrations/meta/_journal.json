@@ -15,6 +15,13 @@
       "when": 1793683070062,
       "tag": "0001_create_daily_top20",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794038367721,
+      "tag": "0002_daily_top20_calibration",
+      "breakpoints": true
     }
   ]
 }

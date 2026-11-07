@@ -82,6 +82,7 @@ export type Database = {
       }
       daily_top20: {
         Row: {
+          actual_result: string | null
           away_team: string
           confidence_score: number
           created_at: string
@@ -92,15 +93,21 @@ export type Database = {
           kickoff_time: string
           league: string
           market: string
+          market_key: string | null
           match_id: string
+          outcome: string
           overall_score: number
           probability: number
           rank: number
+          reliability: string | null
+          reliability_score: number | null
           risk_level: string
           selection: string
+          settled_at: string | null
           stats: Json
         }
         Insert: {
+          actual_result?: string | null
           away_team: string
           confidence_score: number
           created_at?: string
@@ -111,15 +118,21 @@ export type Database = {
           kickoff_time: string
           league: string
           market: string
+          market_key?: string | null
           match_id: string
+          outcome?: string
           overall_score: number
           probability: number
           rank: number
+          reliability?: string | null
+          reliability_score?: number | null
           risk_level: string
           selection: string
+          settled_at?: string | null
           stats?: Json
         }
         Update: {
+          actual_result?: string | null
           away_team?: string
           confidence_score?: number
           created_at?: string
@@ -130,13 +143,36 @@ export type Database = {
           kickoff_time?: string
           league?: string
           market?: string
+          market_key?: string | null
           match_id?: string
+          outcome?: string
           overall_score?: number
           probability?: number
           rank?: number
+          reliability?: string | null
+          reliability_score?: number | null
           risk_level?: string
           selection?: string
+          settled_at?: string | null
           stats?: Json
+        }
+        Relationships: []
+      }
+      daily_top20_runs: {
+        Row: {
+          created_at: string
+          for_date: string
+          meta: Json
+        }
+        Insert: {
+          created_at?: string
+          for_date: string
+          meta?: Json
+        }
+        Update: {
+          created_at?: string
+          for_date?: string
+          meta?: Json
         }
         Relationships: []
       }
