@@ -47,13 +47,28 @@ export interface CandidateStats {
   expectedGoals: string;
   homeForm: string;
   awayForm: string;
+  /** Recent H2H scorelines, or "" when no meeting is on record (unavailable, not poor). */
   h2h: string;
   sampleGames: number;
   h2hCount: number;
-  trainingMatches: number;
   leagueAvgGoals: number;
   odds: number | null;
+  /** Data features that exist for this fixture vs. ones we have no feed for. */
+  availableFeatures: string[];
+  missingFeatures: string[];
+  /** Per-component 0-1 values that went into the overall score (null = unavailable, weight redistributed). */
+  components: Record<string, number | null>;
+  keyFactors: string;
+  mainRisk: string;
 }
+
+/** Canonical market group used for diversification, correlation and per-market history. */
+export type MarketKey =
+  | "BTTS" | "Over 1.5" | "Under 2.5" | "Under 3.5" | "Home Win" | "Away Win" | "Not To Win";
+
+export const MARKET_KEYS: MarketKey[] = [
+  "BTTS", "Over 1.5", "Under 2.5", "Under 3.5", "Home Win", "Away Win", "Not To Win",
+];
 
 export interface Candidate {
   matchId: string;
@@ -62,19 +77,32 @@ export interface Candidate {
   awayTeam: string;
   kickoffTime: string;
   market: string;
+  marketKey: MarketKey;
   selection: string;
-  /** 0-100 */
+  /** Model probability 0-100 (how likely the outcome is). */
   probability: number;
   /** de-vigged market probability in %, when odds exist */
   marketProbability: number | null;
-  /** 0-100 */
+  /** Model confidence 0-100: how much evidence backs the probability — NOT outcome likelihood. */
   confidence: number;
-  /** 0-100 */
+  /** 0-100, computed only over features that exist (missing ≠ poor). */
   dataQuality: number;
+  /** 0-100 blend of probability edge, confidence and data quality. */
+  reliabilityScore: number;
+  reliability: "High" | "Medium" | "Low";
   risk: "Low" | "Medium" | "High";
-  /** probability × confidence × data quality, normalized to 0-100 */
+  /** Overall prediction strength 0-100 — see scoreCandidate() for the formula. */
   overall: number;
   stats: CandidateStats;
+}
+
+/** Settled history for one market (from previous Daily Top 20 picks). */
+export interface MarketHistory { n: number; hits: number; avgPred: number }
+/** Settled history for one probability band. */
+export interface BandHistory { n: number; hits: number; avgPred: number }
+export interface LearnedPerformance {
+  markets: Partial<Record<MarketKey, MarketHistory>>;
+  bands: Record<string, BandHistory>;
 }
 
 const HISTORY_CAP = 10000;
@@ -261,16 +289,168 @@ function round1(x: number): number {
   return Math.round(x * 10) / 10;
 }
 
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+
+export function marketKeyOf(market: string, selection: string): MarketKey {
+  if (market === "Not to Win") return "Not To Win";
+  if (market === "BTTS") return "BTTS";
+  if (selection === "Home Win") return "Home Win";
+  if (selection === "Away Win") return "Away Win";
+  if (selection === "Over 1.5") return "Over 1.5";
+  if (selection === "Under 2.5") return "Under 2.5";
+  return "Under 3.5";
+}
+
+/** Probability bands used for calibration reporting. */
+export const PROB_BANDS: { label: string; lo: number; hi: number }[] = [
+  { label: "60–65%", lo: 60, hi: 65 }, { label: "65–70%", lo: 65, hi: 70 },
+  { label: "70–75%", lo: 70, hi: 75 }, { label: "75–80%", lo: 75, hi: 80 },
+  { label: "80–85%", lo: 80, hi: 85 }, { label: "85–90%", lo: 85, hi: 90 },
+  { label: "90–95%", lo: 90, hi: 95 }, { label: "95%+", lo: 95, hi: 101 },
+];
+
+export function bandOf(probability: number): string | null {
+  return PROB_BANDS.find((b) => probability >= b.lo && probability < b.hi)?.label ?? null;
+}
+
 /**
- * Build every market candidate for a fixture list: blended probability,
- * data-quality score, confidence score, risk level and the overall ranking
- * score (probability × confidence × data quality, normalized 0-100).
+ * Weighted mean over only the components that exist. A null component is
+ * "data unavailable": its weight is redistributed proportionally to the rest
+ * instead of being counted as zero.
  */
+export function weightedAvailable(parts: { w: number; v: number | null }[]): number {
+  let sw = 0, s = 0;
+  for (const p of parts) if (p.v != null) { sw += p.w; s += p.w * p.v; }
+  return sw > 0 ? s / sw : 0;
+}
+
+/** Minimum settled picks before a market/band history is allowed to move the score. */
+export const MIN_HISTORY = 10;
+const SHRINK = 20;
+
+/**
+ * Settle one Daily Top 20 pick against a final score. Returns null if the
+ * selection can't be resolved.
+ */
+export function settlePick(
+  marketKey: MarketKey, selection: string, homeTeam: string, awayTeam: string, hs: number, as: number,
+): boolean | null {
+  switch (marketKey) {
+    case "BTTS": return hs > 0 && as > 0;
+    case "Over 1.5": return hs + as > 1;
+    case "Under 2.5": return hs + as < 3;
+    case "Under 3.5": return hs + as < 4;
+    case "Home Win": return hs > as;
+    case "Away Win": return as > hs;
+    case "Not To Win":
+      if (selection.startsWith(homeTeam)) return hs <= as;
+      if (selection.startsWith(awayTeam)) return as <= hs;
+      return null;
+  }
+}
+
+/** Build market and band history from settled picks ({marketKey, probability, won}). */
+export function learnPerformance(
+  settled: { marketKey: MarketKey; probability: number; won: boolean }[],
+): LearnedPerformance {
+  const markets: LearnedPerformance["markets"] = {};
+  const bands: LearnedPerformance["bands"] = {};
+  const add = (h: { n: number; hits: number; avgPred: number }, p: number, won: boolean) => {
+    h.avgPred = (h.avgPred * h.n + p) / (h.n + 1);
+    h.n += 1; if (won) h.hits += 1;
+  };
+  for (const s of settled) {
+    add((markets[s.marketKey] ??= { n: 0, hits: 0, avgPred: 0 }), s.probability, s.won);
+    const b = bandOf(s.probability);
+    if (b) add((bands[b] ??= { n: 0, hits: 0, avgPred: 0 }), s.probability, s.won);
+  }
+  return { markets, bands };
+}
+
+/** Calibration table: per band count, avg predicted %, actual hit %, error (pp). */
+export function calibrationTable(perf: LearnedPerformance) {
+  return PROB_BANDS.map((b) => {
+    const h = perf.bands[b.label];
+    const hitRate = h && h.n > 0 ? (h.hits / h.n) * 100 : null;
+    return {
+      band: b.label,
+      count: h?.n ?? 0,
+      avgPredicted: h ? round1(h.avgPred) : null,
+      hitRate: hitRate != null ? round1(hitRate) : null,
+      calibrationError: h && hitRate != null ? round1(hitRate - h.avgPred) : null,
+    };
+  });
+}
+
+/**
+ * OVERALL SCORE (0-100) — transparent formula.
+ *
+ *   overall = 100 × Σ wᵢ·xᵢ / Σ wᵢ   over components xᵢ ∈ [0,1] that are AVAILABLE
+ *
+ *   component        weight  value
+ *   probability      0.30    (p − 50) / 45, clamped           (p in %)
+ *   confidence       0.15    confidence / 100
+ *   dataQuality      0.15    dataQuality / 100
+ *   sampleSize       0.10    n / (n + 10), n = smaller team history
+ *   agreement        0.10    1 − |p − market p| / 20           (null if no odds)
+ *   marketHistory    0.10    0.5 + 2.5·(shrunk hit rate − avg predicted) (null if < MIN_HISTORY settled)
+ *   calibration      0.10    1 − |band error| / 15             (null if band has < MIN_HISTORY settled)
+ *
+ * Unavailable components are dropped and their weight redistributed — so a
+ * missing odds feed or a market with no history neither helps nor penalizes.
+ */
+export const SCORE_WEIGHTS = {
+  probability: 0.3, confidence: 0.15, dataQuality: 0.15, sampleSize: 0.1,
+  agreement: 0.1, marketHistory: 0.1, calibration: 0.1,
+} as const;
+
+export function scoreComponents(input: {
+  probability: number; confidence: number; dataQuality: number; sample: number;
+  marketProbability: number | null; market?: MarketHistory; band?: BandHistory;
+}): Record<keyof typeof SCORE_WEIGHTS, number | null> {
+  const { probability: p, market, band } = input;
+  let marketHistory: number | null = null;
+  if (market && market.n >= MIN_HISTORY) {
+    const shrunk = (market.hits + SHRINK * (market.avgPred / 100)) / (market.n + SHRINK);
+    marketHistory = clamp01(0.5 + 2.5 * (shrunk - market.avgPred / 100));
+  }
+  let calibration: number | null = null;
+  if (band && band.n >= MIN_HISTORY) {
+    calibration = clamp01(1 - Math.abs((band.hits / band.n) * 100 - band.avgPred) / 15);
+  }
+  return {
+    probability: clamp01((p - 50) / 45),
+    confidence: input.confidence / 100,
+    dataQuality: input.dataQuality / 100,
+    sampleSize: input.sample / (input.sample + 10),
+    agreement: input.marketProbability == null ? null : clamp01(1 - Math.abs(p - input.marketProbability) / 20),
+    marketHistory,
+    calibration,
+  };
+}
+
+export function overallScore(components: Record<keyof typeof SCORE_WEIGHTS, number | null>): number {
+  return round1(100 * weightedAvailable(
+    (Object.keys(SCORE_WEIGHTS) as (keyof typeof SCORE_WEIGHTS)[]).map((k) => ({ w: SCORE_WEIGHTS[k], v: components[k] })),
+  ));
+}
+
+/** Reliability = how far a probability can be trusted: probability edge + confidence + data quality. */
+export function reliabilityOf(probability: number, confidence: number, dataQuality: number) {
+  const score = round1(0.3 * clamp01((probability - 50) / 45) * 100 + 0.35 * confidence + 0.35 * dataQuality);
+  const label: Candidate["reliability"] = score >= 70 ? "High" : score >= 55 ? "Medium" : "Low";
+  return { score, label };
+}
+
+/** Features we have no feed for at all — always reported as unavailable, never scored. */
+const NO_FEED = ["injuries", "lineups", "measured xG"];
+
 export function buildCandidates(
   model: PoissonModel,
   fixtures: Fixture[],
   oddsByMatch: Record<string, MatchOdds>,
   weights: { wModel: number; wOdds: number },
+  perf: LearnedPerformance = { markets: {}, bands: {} },
 ): Candidate[] {
   const out: Candidate[] = [];
   for (const f of fixtures) {
@@ -279,58 +459,86 @@ export function buildCandidates(
     const probs = goalProbs(lamH, lamA);
     const sample = Math.min(model.teamGames[f.home_team] ?? 0, model.teamGames[f.away_team] ?? 0);
     const h2h = h2hGames(model.recent[f.home_team], f.home_team, f.away_team);
+    const has1x2 = !!(odds.home && odds.draw && odds.away);
     const dataTrust = sample / (sample + 8);
-    const share = odds.home && odds.draw && odds.away
+    const share = has1x2
       ? Math.min(0.8, (weights.wModel / (weights.wModel + weights.wOdds || 1)) * dataTrust * 1.4)
       : 1;
-    const blend = (m: number, mk: number | null) =>
-      mk != null ? share * m + (1 - share) * mk : m;
+    const blend = (m: number, mk: number | null) => (mk != null ? share * m + (1 - share) * mk : m);
+    const homeForm = formString(model.recent[f.home_team], f.home_team);
+    const awayForm = formString(model.recent[f.away_team], f.away_team);
 
     for (const rc of rawCandidates(probs, odds, f.home_team, f.away_team)) {
       const probability = round1(blend(rc.model, rc.marketProb) * 100);
+      const marketKey = marketKeyOf(rc.market, rc.selection);
 
-      // Data quality: odds coverage, team sample, H2H depth, training size.
-      const dqOdds = odds.home && odds.draw && odds.away ? 40 : rc.marketProb != null ? 20 : 0;
-      const dqSample = Math.min(1, sample / 10) * 30;
-      const dqH2h = Math.min(1, h2h.length / 3) * 15;
-      const dqTrain = Math.min(1, model.gameCount / 500) * 15;
-      const dataQuality = round1(dqOdds + dqSample + dqH2h + dqTrain);
+      // DATA QUALITY: mean quality of features that exist. null = unavailable → weight redistributed.
+      const dqParts = {
+        odds: rc.marketProb != null ? 1 : null,
+        teamHistory: sample > 0 ? Math.min(1, sample / 10) : 0, // zero games IS poor data, not missing
+        h2h: h2h.length > 0 ? Math.min(1, h2h.length / 3) : null, // no meeting on record = unavailable
+        form: homeForm.length && awayForm.length ? Math.min(homeForm.length, awayForm.length) / 5 : null,
+      };
+      const dataQuality = round1(100 * weightedAvailable([
+        { w: 35, v: dqParts.odds }, { w: 35, v: dqParts.teamHistory },
+        { w: 15, v: dqParts.h2h }, { w: 15, v: dqParts.form },
+      ]));
+      const available = Object.entries(dqParts).filter(([, v]) => v != null).map(([k]) => k);
+      const missing = [...Object.entries(dqParts).filter(([, v]) => v == null).map(([k]) => k), ...NO_FEED];
 
-      // Confidence: evidence strength, not outcome likelihood.
-      const agree = rc.marketProb == null
-        ? 55
-        : Math.max(0, 100 - Math.min(100, Math.abs(probability - rc.marketProb * 100) * 2.5));
-      const confidence = round1(0.45 * probability + 0.4 * dataQuality + 0.15 * agree);
+      // CONFIDENCE: strength of evidence behind the number, independent of the probability itself.
+      const agree = rc.marketProb == null ? null : clamp01(1 - Math.abs(probability - rc.marketProb * 100) / 20);
+      const confidence = round1(100 * weightedAvailable([
+        { w: 0.45, v: sample / (sample + 10) },
+        { w: 0.3, v: agree },
+        { w: 0.25, v: clamp01(model.gameCount / 500) },
+      ]));
 
-      const risk: Candidate["risk"] =
-        dataQuality < 45 ? "High" : dataQuality < 65 || probability < 55 ? "Medium" : "Low";
+      const components = scoreComponents({
+        probability, confidence, dataQuality, sample,
+        marketProbability: rc.marketProb != null ? rc.marketProb * 100 : null,
+        market: perf.markets[marketKey], band: perf.bands[bandOf(probability) ?? ""],
+      });
+      const overall = overallScore(components);
+      const rel = reliabilityOf(probability, confidence, dataQuality);
+      const risk: Candidate["risk"] = rel.label === "High" ? "Low" : rel.label === "Medium" ? "Medium" : "High";
 
-      const overall = round1((probability * confidence * dataQuality) / 10000);
+      const factors: string[] = [];
+      factors.push(`Model ${probability.toFixed(1)}% from xG ${lamH.toFixed(2)}–${lamA.toFixed(2)}`);
+      if (agree != null && agree >= 0.75) factors.push(`market agrees (${(rc.marketProb! * 100).toFixed(1)}%)`);
+      if (homeForm || awayForm) factors.push(`form ${homeForm || "—"} / ${awayForm || "—"}`);
+      if (h2h.length) factors.push(`H2H ${h2h.map((g) => `${g.home_score}-${g.away_score}`).join(", ")}`);
+      const mh = perf.markets[marketKey];
+      if (mh && mh.n >= MIN_HISTORY) factors.push(`${marketKey} hit ${((mh.hits / mh.n) * 100).toFixed(0)}% of ${mh.n} past picks`);
+
+      const risks: [number, string][] = [];
+      if (sample < 6) risks.push([3, `thin team history (${sample} games)`]);
+      if (rc.marketProb == null) risks.push([2, "no bookmaker odds to cross-check"]);
+      else if (agree != null && agree < 0.5) risks.push([3, `model ${probability.toFixed(0)}% vs market ${(rc.marketProb * 100).toFixed(0)}% disagree`]);
+      if (marketKey === "Under 2.5" || marketKey === "Under 3.5") risks.push([1, "one early goal changes game state"]);
+      if (marketKey === "Over 1.5" || marketKey === "BTTS") risks.push([1, "low-tempo or defensive match"]);
+      if (marketKey === "Not To Win") risks.push([1, "favourite wins outright"]);
+      if (marketKey === "Home Win" || marketKey === "Away Win") risks.push([1, "draw or upset"]);
+      risks.push([0.5, "no injury/lineup data"]);
+      risks.sort((a, b) => b[0] - a[0]);
 
       out.push({
-        matchId: f.id,
-        league: f.league,
-        homeTeam: f.home_team,
-        awayTeam: f.away_team,
-        kickoffTime: f.kickoff_time,
-        market: rc.market,
-        selection: rc.selection,
+        matchId: f.id, league: f.league, homeTeam: f.home_team, awayTeam: f.away_team,
+        kickoffTime: f.kickoff_time, market: rc.market, marketKey, selection: rc.selection,
         probability,
         marketProbability: rc.marketProb != null ? round1(rc.marketProb * 100) : null,
-        confidence,
-        dataQuality,
-        risk,
-        overall,
+        confidence, dataQuality, reliabilityScore: rel.score, reliability: rel.label, risk, overall,
         stats: {
           expectedGoals: `${lamH.toFixed(2)} – ${lamA.toFixed(2)}`,
-          homeForm: formString(model.recent[f.home_team], f.home_team),
-          awayForm: formString(model.recent[f.away_team], f.away_team),
+          homeForm, awayForm,
           h2h: h2h.map((g) => `${g.home_score}-${g.away_score}`).join(", "),
-          sampleGames: sample,
-          h2hCount: h2h.length,
-          trainingMatches: model.gameCount,
+          sampleGames: sample, h2hCount: h2h.length,
           leagueAvgGoals: round1(model.leagueAvg[f.league] ?? 2.6),
           odds: rc.odds != null ? round1(rc.odds) : null,
+          availableFeatures: available, missingFeatures: missing,
+          components,
+          keyFactors: factors.join("; "),
+          mainRisk: risks[0][1],
         },
       });
     }
@@ -338,30 +546,67 @@ export function buildCandidates(
   return out;
 }
 
+/** Pairs of markets on the same fixture that largely win/lose together. */
+export function correlated(a: Candidate, b: Candidate): boolean {
+  const pair = new Set([a.marketKey, b.marketKey]);
+  const has = (x: MarketKey, y: MarketKey) => pair.has(x) && pair.has(y) && x !== y;
+  if (a.marketKey === b.marketKey) return true; // e.g. both Not-To-Win sides
+  if (has("Under 2.5", "Under 3.5") || has("Over 1.5", "BTTS")) return true;
+  // Win for one side ≈ Not-To-Win for the other side
+  const ntw = a.marketKey === "Not To Win" ? a : b.marketKey === "Not To Win" ? b : null;
+  const win = a.marketKey === "Home Win" || a.marketKey === "Away Win" ? a
+    : b.marketKey === "Home Win" || b.marketKey === "Away Win" ? b : null;
+  if (ntw && win) {
+    const loser = win.marketKey === "Home Win" ? win.awayTeam : win.homeTeam;
+    if (ntw.selection.startsWith(loser)) return true;
+  }
+  return false;
+}
+
 export interface RankOptions {
   maxPerMatch?: number;
+  maxPerMarket?: number;
   limit?: number;
   minProbability?: number;
   minConfidence?: number;
+  minOverall?: number;
 }
 
+export interface RankResult {
+  picks: Candidate[];
+  rejected: { belowThreshold: number; perMatchCap: number; perMarketCap: number; correlated: number; beyondLimit: number };
+}
+
+export const DEFAULT_RANK: Required<RankOptions> = {
+  maxPerMatch: 2, maxPerMarket: 6, limit: 20, minProbability: 60, minConfidence: 50, minOverall: 50,
+};
+
 /**
- * Rank all opportunities by overall score, drop weak ones, allow several strong
- * markets per match (capped so one fixture cannot flood the list) and select the
- * strongest opportunities of the day.
+ * Greedy selection by overall score. Caps only ever SKIP a candidate — they
+ * never pull in a weaker one to fill a quota, and the list may be shorter than
+ * `limit` when not enough candidates clear the quality thresholds.
  */
-export function rankCandidates(candidates: Candidate[], opts: RankOptions = {}): Candidate[] {
-  const { maxPerMatch = 3, limit = 20, minProbability = 50, minConfidence = 40 } = opts;
-  const eligible = candidates.filter((c) => c.probability >= minProbability && c.confidence >= minConfidence);
+export function rankCandidates(candidates: Candidate[], opts: RankOptions = {}): RankResult {
+  const o = { ...DEFAULT_RANK, ...opts };
+  const rejected = { belowThreshold: 0, perMatchCap: 0, perMarketCap: 0, correlated: 0, beyondLimit: 0 };
+  const eligible = candidates.filter((c) => {
+    const ok = c.probability >= o.minProbability && c.confidence >= o.minConfidence && c.overall >= o.minOverall;
+    if (!ok) rejected.belowThreshold++;
+    return ok;
+  });
   eligible.sort((a, b) => b.overall - a.overall || b.probability - a.probability);
-  const perMatch = new Map<string, number>();
-  const picked: Candidate[] = [];
+  const byMatch = new Map<string, Candidate[]>();
+  const perMarket = new Map<MarketKey, number>();
+  const picks: Candidate[] = [];
   for (const c of eligible) {
-    const used = perMatch.get(c.matchId) ?? 0;
-    if (used >= maxPerMatch) continue;
-    perMatch.set(c.matchId, used + 1);
-    picked.push(c);
-    if (picked.length >= limit) break;
+    if (picks.length >= o.limit) { rejected.beyondLimit++; continue; }
+    const same = byMatch.get(c.matchId) ?? [];
+    if (same.length >= o.maxPerMatch) { rejected.perMatchCap++; continue; }
+    if (same.some((s) => correlated(s, c))) { rejected.correlated++; continue; }
+    if ((perMarket.get(c.marketKey) ?? 0) >= o.maxPerMarket) { rejected.perMarketCap++; continue; }
+    same.push(c); byMatch.set(c.matchId, same);
+    perMarket.set(c.marketKey, (perMarket.get(c.marketKey) ?? 0) + 1);
+    picks.push(c);
   }
-  return picked;
+  return { picks, rejected };
 }
